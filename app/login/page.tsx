@@ -107,19 +107,21 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f4f7fc] px-4 py-12">
-      <div className="pointer-events-none absolute -left-40 -top-40 h-96 w-96 rounded-full bg-blue-200/40 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-indigo-200/40 blur-3xl" />
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#03070d] via-[#091321] to-[#111827] px-4 py-12">
+      {/* Premium dark background lighting */}
+      <div className="pointer-events-none absolute -left-40 -top-40 h-96 w-96 rounded-full bg-[#c49a50]/15 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-[#d6ad61]/10 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(214,173,97,0.08),transparent_55%)]" />
 
       <div className="relative z-10 w-full max-w-[460px]">
         <Link href="/" className="mb-8 flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#142746] to-blue-600 text-2xl font-black text-white shadow-xl shadow-blue-900/20">
-            S
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#d6ad61]/40 bg-gradient-to-br from-[#26364b] to-[#080e18] text-xl font-black text-[#e2c17f] shadow-[0_8px_35px_rgba(214,173,97,0.18)]">
+            GS
           </div>
-          <h1 className="mt-3 text-xl font-black tracking-[2px] text-[#142746]">
-            SCHOLARFLOW
+          <h1 className="mt-3 text-xl font-black tracking-[2px] text-white">
+            GS SCHOOL
           </h1>
-          <p className="mt-1 text-[10px] font-bold tracking-[3px] text-slate-400">
+          <p className="mt-1 text-[10px] font-bold tracking-[3px] text-[#d6ad61]">
             SCHOOL MANAGEMENT SYSTEM
           </p>
         </Link>
@@ -236,14 +238,18 @@ export default function LoginPage() {
         </section>
 
         <div className="mt-7 text-center">
-          <Link href="/" className="text-xs font-semibold text-slate-500 transition hover:text-blue-600">
+          <Link href="/" className="text-xs font-semibold text-slate-300 transition hover:text-[#e2c17f]">
             ← Back to home
           </Link>
-          <p className="mt-4 text-[10px] font-medium tracking-wide text-slate-400">
-            SECURE ACADEMIC MANAGEMENT · SCHOLARFLOW
+
+          <p className="mt-4 text-[10px] font-bold tracking-[1.5px] text-[#d6ad61]">
+            POWERED BY GODSPEED TECHNOLOGIES
           </p>
-          <p className="mt-2 text-[10px] text-slate-400">
-            © 2026 ScholarFlow. All rights reserved.
+          <p className="mt-1 text-[10px] text-slate-400">
+            Kumba, Cameroon
+          </p>
+          <p className="mt-3 text-[10px] text-slate-500">
+            © 2026 GS SCHOOL. All rights reserved.
           </p>
         </div>
       </div>
