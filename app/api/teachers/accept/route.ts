@@ -145,6 +145,7 @@ let invitationRef: DocumentReference | null = null;
       message: "Your teacher account has been created. You can now sign in.",
     });
   } catch (error) {
+  console.error("TEACHER ACTIVATION FAILURE:", error);
     if (createdUid) {
       try {
         await adminAuth.deleteUser(createdUid);
