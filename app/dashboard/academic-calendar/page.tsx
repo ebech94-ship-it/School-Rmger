@@ -29,6 +29,7 @@ type AcademicYear = {
   name: string;
   startDate: string;
   endDate: string;
+  isActive: boolean;
 };
 
 export default function AcademicCalendarPage() {
@@ -94,6 +95,7 @@ export default function AcademicCalendarPage() {
               name: item.data().name || "",
               startDate: item.data().startDate || "",
               endDate: item.data().endDate || "",
+              isActive: item.data().isActive === true,
             }));
 
             records.sort((a, b) => a.name.localeCompare(b.name));
@@ -103,7 +105,7 @@ export default function AcademicCalendarPage() {
               if (current && records.some((year) => year.id === current)) {
                 return current;
               }
-              return records[0]?.id || "";
+             return records.find((year) => year.isActive)?.id || records[0]?.id || "";
             });
 
             setLoading(false);
@@ -145,6 +147,7 @@ export default function AcademicCalendarPage() {
         name: item.data().name || "",
         startDate: item.data().startDate || "",
         endDate: item.data().endDate || "",
+        isActive: item.data().isActive === true,
         status: item.data().status || "upcoming",
         order: item.data().order || 0,
       })) as Term[];
@@ -167,7 +170,38 @@ const terms =
     ? termsState.records
     : [];
   const activeYear = years.find((year) => year.id === selectedYear);
+async function setCurrentAcademicYear() {
+  if (!schoolId || !selectedYear || saving) return;
 
+  if (!window.confirm(
+    `Make ${activeYear?.name} the current academic year?`
+  )) return;
+
+  setError("");
+  setMessage("");
+  setSaving(true);
+
+  try {
+    const batch = writeBatch(db);
+
+    years.forEach((year) => {
+      batch.update(
+        doc(db, "schools", schoolId, "academicYears", year.id),
+        {
+          isActive: year.id === selectedYear,
+          updatedAt: serverTimestamp(),
+        }
+      );
+    });
+
+    await batch.commit();
+    setMessage(`${activeYear?.name} is now the current academic year.`);
+  } catch {
+    setError("Could not change the current academic year.");
+  } finally {
+    setSaving(false);
+  }
+}
   async function createAcademicYear() {
     setError("");
     setMessage("");
@@ -191,7 +225,8 @@ const terms =
           name: yearName.trim(),
           startDate: yearStart,
           endDate: yearEnd,
-          createdAt: serverTimestamp(),
+                  createdAt: serverTimestamp(),
+                  isActive: years.length === 0,
           updatedAt: serverTimestamp(),
         }
       );
@@ -566,15 +601,30 @@ const terms =
                   {activeYear.endDate || "Closing date not set"}
                 </p>
               </div>
+<div className="space-y-3">
+  <div className="rounded-xl bg-slate-100 px-5 py-4">
+    <p className="text-sm font-medium text-slate-600">
+      Current open term
+    </p>
+    <p className="mt-1 text-lg font-bold text-slate-900">
+      {openTerm?.name || "No term is open"}
+    </p>
+  </div>
 
-              <div className="rounded-xl bg-slate-100 px-5 py-4">
-                <p className="text-sm font-medium text-slate-600">
-                  Current open term
-                </p>
-                <p className="mt-1 text-lg font-bold text-slate-900">
-                  {openTerm?.name || "No term is open"}
-                </p>
-              </div>
+  {activeYear.isActive ? (
+    <p className="rounded-xl bg-green-50 px-5 py-3 text-center font-bold text-green-800">
+      Current academic year
+    </p>
+  ) : (
+    <button
+      onClick={setCurrentAcademicYear}
+      disabled={saving}
+      className="min-h-12 w-full rounded-xl bg-blue-700 px-5 py-3 font-bold text-white hover:bg-blue-800 disabled:opacity-60"
+    >
+      {saving ? "Updating..." : "Set as Current Year"}
+    </button>
+  )}
+</div>
             </div>
           </section>
 

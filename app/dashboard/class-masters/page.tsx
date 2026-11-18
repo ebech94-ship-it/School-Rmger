@@ -29,6 +29,7 @@ type Teacher = {
   email: string;
   department: string;
   status: string;
+  authUid: string | null;
 };
 
 export default function ClassMastersPage() {
@@ -109,13 +110,14 @@ export default function ClassMastersPage() {
             const records = snapshot.docs.map((item) => {
               const data = item.data();
 
-              return {
-                id: item.id,
-                name: data.name || "",
-                email: data.email || "",
-                department: data.department || "",
-                status: data.status || "active",
-              } as Teacher;
+             return {
+  id: item.id,
+  name: data.name || "",
+  email: data.email || "",
+  department: data.department || "",
+  status: data.status || "active",
+  authUid: data.authUid || null,
+} as Teacher;
             });
 
             records.sort((a, b) => a.name.localeCompare(b.name));
@@ -199,10 +201,19 @@ export default function ClassMastersPage() {
         (teacher) => teacher.id === selectedTeacher
       );
 
-      if (!teacherExists) {
-        setError("Please select an active teacher.");
-        return;
-      }
+    if (!teacherExists) {
+  setError("Please select an active teacher.");
+  return;
+}
+
+const selectedTeacherRecord = activeTeachers.find(
+  (teacher) => teacher.id === selectedTeacher
+);
+
+if (!selectedTeacherRecord?.authUid) {
+  setError("This teacher must have an active login account before becoming Class Master.");
+  return;
+}
     }
 
     setSaving(true);
@@ -212,13 +223,18 @@ export default function ClassMastersPage() {
     try {
       await updateDoc(
         doc(db, "schools", schoolId, "classes", selectedClass),
-        {
-          classMasterTeacherId: selectedTeacher || null,
-          classMasterAssignedAt: selectedTeacher
-            ? serverTimestamp()
-            : null,
-          updatedAt: serverTimestamp(),
-        }
+       {
+  classMasterTeacherId: selectedTeacher || null,
+  classMasterUid: selectedTeacher
+    ? activeTeachers.find(
+        (teacher) => teacher.id === selectedTeacher
+      )?.authUid || null
+    : null,
+  classMasterAssignedAt: selectedTeacher
+    ? serverTimestamp()
+    : null,
+  updatedAt: serverTimestamp(),
+}
       );
 
       const classRecord = classes.find(

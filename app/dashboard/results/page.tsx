@@ -6,44 +6,46 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
-  Timestamp,
-  updateDoc,
   serverTimestamp,
+  Timestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 
-type ResultStatus =
-  | "awaiting_teacher"
-  | "submitted"
-  | "reviewed"
-  | "finalized";
+type ResultStatus = "draft" | "submitted" | "reviewed" | "finalized";
 
 type ResultRecord = {
   id: string;
-  className: string;
-  department: string;
-  subjectName: string;
-  teacherName: string;
+  academicYearId: string;
   academicYearName: string;
+  termId: string;
   termName: string;
+  classId: string;
+  className: string;
+  subjectId: string;
+  subjectName: string;
+  teacherId: string;
+  teacherName: string;
   status: ResultStatus;
   submittedAt: Timestamp | null;
+  markCount: number;
 };
 
 const statusLabels: Record<ResultStatus, string> = {
-  awaiting_teacher: "Awaiting teacher",
+  draft: "Draft",
   submitted: "Submitted",
   reviewed: "Reviewed",
   finalized: "Finalized",
 };
 
 const statusStyles: Record<ResultStatus, string> = {
-  awaiting_teacher: "bg-red-50 text-red-700",
+  draft: "bg-slate-100 text-slate-700",
   submitted: "bg-amber-50 text-amber-700",
   reviewed: "bg-blue-50 text-blue-700",
-  finalized: "bg-slate-100 text-slate-700",
+  finalized: "bg-green-50 text-green-700",
 };
 
 export default function ResultsManagementPage() {
@@ -57,7 +59,8 @@ export default function ResultsManagementPage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    let unsubscribeResults: (() => void) | undefined;
+    const listeners: (() => void)[] = [];
+    let cancelled = false;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -73,102 +76,205 @@ export default function ResultsManagementPage() {
           return;
         }
 
-        const data = profile.data();
+        const profileData = profile.data();
 
         if (
-          data.active !== true ||
-          data.role !== "technical_admin" ||
-          !data.schoolId
+          profileData.active !== true ||
+          profileData.role !== "technical_admin" ||
+          !profileData.schoolId
         ) {
           window.location.replace("/login");
           return;
         }
 
-        const currentSchoolId = data.schoolId;
+        const currentSchoolId = profileData.schoolId;
+
+        if (cancelled) return;
+
         setSchoolId(currentSchoolId);
 
-        unsubscribeResults = onSnapshot(
-          collection(db, "schools", currentSchoolId, "results"),
-          (snapshot) => {
-            const records = snapshot.docs.map((item) => {
-              const data = item.data();
-
-              return {
-                id: item.id,
-                className: data.className || "Class not specified",
-                department: data.department || "",
-                subjectName: data.subjectName || "Subject not specified",
-                teacherName: data.teacherName || "Teacher not specified",
-                academicYearName: data.academicYearName || "",
-                termName: data.termName || "",
-                status: data.status || "awaiting_teacher",
-                submittedAt: data.submittedAt || null,
-              } as ResultRecord;
-            });
-
-            records.sort((a, b) =>
-              a.className.localeCompare(b.className)
-            );
-
-            setResults(records);
-            setLoading(false);
-            setError("");
-          },
-          (err) => {
-            console.error(err);
-            setError(
-              "Unable to load results. Firestore permissions may need updating."
-            );
-            setLoading(false);
-          }
+        const yearsSnapshot = await getDocs(
+          collection(db, "schools", currentSchoolId, "academicYears")
         );
+
+        for (const yearDoc of yearsSnapshot.docs) {
+          const yearId = yearDoc.id;
+          const yearName = yearDoc.data().name || "";
+
+          const termsSnapshot = await getDocs(
+            collection(
+              db,
+              "schools",
+              currentSchoolId,
+              "academicYears",
+              yearId,
+              "terms"
+            )
+          );
+
+          for (const termDoc of termsSnapshot.docs) {
+            const termId = termDoc.id;
+            const termName = termDoc.data().name || "";
+
+            const marksRef = collection(
+              db,
+              "schools",
+              currentSchoolId,
+              "academicYears",
+              yearId,
+              "terms",
+              termId,
+              "marks"
+            );
+
+            const unsubscribe = onSnapshot(
+              marksRef,
+              (snapshot) => {
+                if (cancelled) return;
+
+                const grouped = new Map<string, ResultRecord>();
+
+                snapshot.docs.forEach((item) => {
+                  const data = item.data();
+
+                  const classId = data.classId || "";
+                  const subjectId = data.subjectId || "";
+                  const teacherId = data.teacherId || "";
+
+                  if (!classId || !subjectId) return;
+
+                  const groupId = `${yearId}__${termId}__${classId}__${subjectId}__${teacherId}`;
+
+                  const status = (
+                    data.status || "draft"
+                  ) as ResultStatus;
+
+                  const existing = grouped.get(groupId);
+
+                  if (existing) {
+                    existing.markCount += 1;
+
+                    if (status === "submitted") {
+                      existing.status = "submitted";
+                    } else if (
+                      status === "draft" &&
+                      existing.status !== "submitted"
+                    ) {
+                      existing.status = "draft";
+                    } else if (
+                      status === "reviewed" &&
+                      existing.status !== "submitted" &&
+                      existing.status !== "draft"
+                    ) {
+                      existing.status = "reviewed";
+                    }
+
+                    if (
+                      data.submittedAt &&
+                      (!existing.submittedAt ||
+                        data.submittedAt.toMillis() >
+                          existing.submittedAt.toMillis())
+                    ) {
+                      existing.submittedAt = data.submittedAt;
+                    }
+                  } else {
+                    grouped.set(groupId, {
+                      id: groupId,
+                      academicYearId: yearId,
+                      academicYearName: yearName,
+                      termId,
+                      termName,
+                      classId,
+                      className: data.className || "Class not specified",
+                      subjectId,
+                      subjectName: data.subjectName || "Subject not specified",
+                      teacherId: data.teacherId || "Teacher not specified",
+                      teacherName: data.teacherName || "Teacher not specified",
+                      status,
+                      submittedAt: data.submittedAt || null,
+                      markCount: 1,
+                    });
+                  }
+                });
+
+                const newRecords = Array.from(grouped.values());
+
+                setResults((previous) => {
+                  const otherRecords = previous.filter(
+                    (item) =>
+                      item.academicYearId !== yearId ||
+                      item.termId !== termId
+                  );
+
+                  return [...otherRecords, ...newRecords].sort((a, b) =>
+                    a.className.localeCompare(b.className)
+                  );
+                });
+
+                setLoading(false);
+              },
+              (err) => {
+                console.error(err);
+                setError("Unable to load marks. Check Firestore permissions.");
+                setLoading(false);
+              }
+            );
+
+            listeners.push(unsubscribe);
+          }
+        }
+
+        if (!cancelled) setLoading(false);
       } catch (err) {
         console.error(err);
-        setError("Unable to verify your administrator account.");
+        setError("Unable to load academic years, terms or marks.");
         setLoading(false);
       }
     });
 
     return () => {
+      cancelled = true;
       unsubscribeAuth();
-      unsubscribeResults?.();
+      listeners.forEach((unsubscribe) => unsubscribe());
     };
   }, []);
 
-  const counts = useMemo(() => ({
-    awaiting: results.filter(r => r.status === "awaiting_teacher").length,
-    submitted: results.filter(r => r.status === "submitted").length,
-    reviewed: results.filter(r => r.status === "reviewed").length,
-    finalized: results.filter(r => r.status === "finalized").length,
-  }), [results]);
+  const counts = useMemo(
+    () => ({
+      draft: results.filter((r) => r.status === "draft").length,
+      submitted: results.filter((r) => r.status === "submitted").length,
+      reviewed: results.filter((r) => r.status === "reviewed").length,
+      finalized: results.filter((r) => r.status === "finalized").length,
+    }),
+    [results]
+  );
 
   const filteredResults = useMemo(() => {
     const term = search.toLowerCase();
 
     return results.filter((result) => {
-      const matchesStatus =
-        filter === "all" || result.status === filter;
+      const matchesStatus = filter === "all" || result.status === filter;
 
       const matchesSearch = [
         result.className,
-        result.department,
         result.subjectName,
         result.teacherName,
         result.academicYearName,
         result.termName,
-      ].join(" ").toLowerCase().includes(term);
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(term);
 
       return matchesStatus && matchesSearch;
     });
   }, [results, filter, search]);
 
   async function finalizeResult(result: ResultRecord) {
-    if (!schoolId || savingId) return;
-
-    if (result.status !== "reviewed") return;
+    if (!schoolId || savingId || result.status !== "reviewed") return;
 
     const confirmed = window.confirm(
-      `Finalize results for ${result.className} - ${result.subjectName}?\n\nFinalized results will be locked against normal editing.`
+      `Finalize results for ${result.className} - ${result.subjectName}?\n\nFinalized marks will be locked against normal editing.`
     );
 
     if (!confirmed) return;
@@ -178,22 +284,60 @@ export default function ResultsManagementPage() {
     setMessage("");
 
     try {
-      await updateDoc(
-        doc(db, "schools", schoolId, "results", result.id),
-        {
-          status: "finalized",
-          finalizedAt: serverTimestamp(),
-          finalizedBy: auth.currentUser?.uid || null,
-          updatedAt: serverTimestamp(),
-        }
+      const marksRef = collection(
+        db,
+        "schools",
+        schoolId,
+        "academicYears",
+        result.academicYearId,
+        "terms",
+        result.termId,
+        "marks"
       );
+
+      const snapshot = await getDocs(marksRef);
+
+            const matchingDocs = snapshot.docs.filter((item) => {
+        const data = item.data();
+
+        return (
+          data.classId === result.classId &&
+          data.subjectId === result.subjectId &&
+          data.teacherId === result.teacherId
+        );
+      });
+
+      if (
+        matchingDocs.length !== result.markCount ||
+        matchingDocs.some((item) => item.data().status !== "reviewed")
+      ) {
+        setError(
+          "These marks are not all reviewed. Refresh the page and check the Class Master review."
+        );
+        return;
+      }
+
+      for (let i = 0; i < matchingDocs.length; i += 450) {
+        const batch = writeBatch(db);
+
+        matchingDocs.slice(i, i + 450).forEach((item) => {
+          batch.update(item.ref, {
+            status: "finalized",
+            finalizedAt: serverTimestamp(),
+            finalizedBy: auth.currentUser?.uid || null,
+            updatedAt: serverTimestamp(),
+          });
+        });
+
+        await batch.commit();
+      }
 
       setMessage(
         `${result.subjectName} results for ${result.className} finalized successfully.`
       );
     } catch (err) {
       console.error(err);
-      setError("Unable to finalize results. Check your Firestore permissions.");
+      setError("Unable to finalize marks. Check your Firestore permissions.");
     } finally {
       setSavingId("");
     }
@@ -237,26 +381,10 @@ export default function ResultsManagementPage() {
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          {
-            label: "Awaiting teacher",
-            value: counts.awaiting,
-            color: "text-red-600",
-          },
-          {
-            label: "Submitted",
-            value: counts.submitted,
-            color: "text-amber-600",
-          },
-          {
-            label: "Reviewed",
-            value: counts.reviewed,
-            color: "text-blue-700",
-          },
-          {
-            label: "Finalized",
-            value: counts.finalized,
-            color: "text-slate-700",
-          },
+          { label: "Draft", value: counts.draft, color: "text-slate-700" },
+          { label: "Submitted", value: counts.submitted, color: "text-amber-600" },
+          { label: "Reviewed", value: counts.reviewed, color: "text-blue-700" },
+          { label: "Finalized", value: counts.finalized, color: "text-green-700" },
         ].map((item) => (
           <div key={item.label} className="rounded-xl border bg-white p-4">
             <p className="text-xs text-slate-500">{item.label}</p>
@@ -276,7 +404,7 @@ export default function ResultsManagementPage() {
           {[
             ["01", "Teacher entry", "Teacher records and submits marks."],
             ["02", "Class Master review", "Checks class results and completeness."],
-            ["03", "Admin finalization", "Approves and locks reviewed results."],
+            ["03", "Admin finalization", "Approves and locks reviewed marks."],
           ].map(([number, title, detail]) => (
             <div key={number} className="rounded-lg bg-slate-50 p-3">
               <p className="text-xs font-bold text-blue-700">{number}</p>
@@ -294,7 +422,7 @@ export default function ResultsManagementPage() {
               Subject submission register
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              Live records from your school&apos;s database.
+              Live records from the actual marks collection.
             </p>
           </div>
 
@@ -312,7 +440,7 @@ export default function ResultsManagementPage() {
               className="rounded-lg border bg-white px-3 py-2 text-sm"
             >
               <option value="all">All statuses</option>
-              <option value="awaiting_teacher">Awaiting teacher</option>
+              <option value="draft">Draft</option>
               <option value="submitted">Submitted</option>
               <option value="reviewed">Reviewed</option>
               <option value="finalized">Finalized</option>
@@ -322,15 +450,15 @@ export default function ResultsManagementPage() {
 
         {loading ? (
           <p className="p-8 text-center text-sm text-slate-500">
-            Loading results...
+            Loading marks...
           </p>
         ) : filteredResults.length === 0 ? (
           <div className="p-10 text-center">
             <p className="text-sm font-medium text-slate-700">
-              No result records found.
+              No mark records found.
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Results will appear here when teachers submit marks.
+              Records will appear here when teachers save marks.
             </p>
           </div>
         ) : (
@@ -346,16 +474,15 @@ export default function ResultsManagementPage() {
                   </p>
 
                   <p className="mt-1 text-xs text-slate-600">
-                    {result.className}
-                    {result.department ? ` · ${result.department}` : ""}
-                    {" · "}
-                    {result.teacherName}
+                    {result.className} · {result.teacherName}
                   </p>
 
                   <p className="mt-1 text-xs text-slate-400">
                     {[result.academicYearName, result.termName]
                       .filter(Boolean)
                       .join(" · ")}
+                    {" · "}
+                    {result.markCount} student marks
                     {" · Submitted: "}
                     {formatDate(result.submittedAt)}
                   </p>
@@ -381,7 +508,7 @@ export default function ResultsManagementPage() {
                   )}
 
                   {result.status === "finalized" && (
-                    <span className="text-xs font-medium text-slate-500">
+                    <span className="text-xs font-medium text-green-700">
                       Locked
                     </span>
                   )}

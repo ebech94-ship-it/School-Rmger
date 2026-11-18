@@ -24,9 +24,50 @@ type Teacher = {
   accountStatus: "not_created" | "invited" | "active";
   authUid: string | null;
 };
+type SchoolClass = {
+  id: string;
+  name: string;
+  status: string;
+};
+
+type SchoolSubject = {
+  id: string;
+  name: string;
+  code: string;
+  status: string;
+};
+
+type AcademicYear = {
+  id: string;
+  name: string;
+};
+
+type TeacherAssignment = {
+  id: string;
+  teacherId: string;
+  academicYearId: string;
+  academicYearName: string;
+  classId: string;
+  className: string;
+  subjectId: string;
+  subjectName: string;
+  status: "active" | "inactive";
+};
 
 export default function TeachersPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+const [subjects, setSubjects] = useState<SchoolSubject[]>([]);
+const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
+const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
+
+const [showAssignments, setShowAssignments] = useState(false);
+const [assignmentTeacher, setAssignmentTeacher] = useState<Teacher | null>(null);
+const [assignmentYear, setAssignmentYear] = useState("");
+const [assignmentClass, setAssignmentClass] = useState("");
+const [assignmentSubjects, setAssignmentSubjects] = useState<string[]>([]);
+const [savingAssignment, setSavingAssignment] = useState(false);
+
   const [schoolId, setSchoolId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -48,6 +89,10 @@ const [invitationLink, setInvitationLink] = useState("");
 
   useEffect(() => {
     let unsubscribeTeachers: (() => void) | undefined;
+let unsubscribeClasses: (() => void) | undefined;
+let unsubscribeSubjects: (() => void) | undefined;
+let unsubscribeYears: (() => void) | undefined;
+let unsubscribeAssignments: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -77,6 +122,69 @@ const [invitationLink, setInvitationLink] = useState("");
         const currentSchoolId = data.schoolId;
         setSchoolId(currentSchoolId);
 
+// Load school classes
+unsubscribeClasses = onSnapshot(
+  collection(db, "schools", currentSchoolId, "classes"),
+  (snapshot) => {
+    setClasses(
+      snapshot.docs
+        .map((item) => ({
+          id: item.id,
+          name: item.data().name || "",
+          status: item.data().status || "active",
+        }))
+        .filter((item) => item.status === "active")
+    );
+  }
+);
+
+// Load school subjects
+ unsubscribeSubjects = onSnapshot(
+  collection(db, "schools", currentSchoolId, "subjects"),
+  (snapshot) => {
+    setSubjects(
+      snapshot.docs
+        .map((item) => ({
+          id: item.id,
+          name: item.data().name || "",
+          code: item.data().code || "",
+          status: item.data().status || "active",
+        }))
+        .filter((item) => item.status === "active")
+    );
+  }
+);
+
+// Load academic years
+ unsubscribeYears = onSnapshot(
+  collection(db, "schools", currentSchoolId, "academicYears"),
+  (snapshot) => {
+    const records = snapshot.docs.map((item) => ({
+      id: item.id,
+      name: item.data().name || "",
+    }));
+
+    setAcademicYears(records);
+    setAssignmentYear((current) => current || records[0]?.id || "");
+  }
+);
+
+// Load teacher assignments
+ unsubscribeAssignments = onSnapshot(
+  collection(db, "schools", currentSchoolId, "teacherAssignments"),
+  (snapshot) => {
+    setAssignments(
+      snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+      })) as TeacherAssignment[]
+    );
+  },
+  (err) => {
+    console.error("Assignment loading error:", err);
+    setError("Unable to load teacher assignments.");
+  }
+);
         unsubscribeTeachers = onSnapshot(
           collection(db, "schools", currentSchoolId, "teachers"),
           (snapshot) => {
@@ -122,10 +230,14 @@ const [invitationLink, setInvitationLink] = useState("");
       }
     });
 
-    return () => {
-      unsubscribeAuth();
-      unsubscribeTeachers?.();
-    };
+ return () => {
+  unsubscribeAuth();
+  unsubscribeTeachers?.();
+  unsubscribeClasses?.();
+  unsubscribeSubjects?.();
+  unsubscribeYears?.();
+  unsubscribeAssignments?.();
+};
   }, []);
 
   function resetForm() {
@@ -279,6 +391,146 @@ async function copyInvitationLink() {
     setError("Unable to copy the link. Please copy it manually.");
   }
 }
+function startAssignment(teacher: Teacher) {
+  const currentYear = assignmentYear || academicYears[0]?.id || "";
+
+  const existing = assignments.filter(
+    (item) =>
+      item.teacherId === teacher.id &&
+      item.academicYearId === currentYear &&
+      item.status === "active"
+  );
+
+  const firstClassId = existing[0]?.classId || "";
+
+  setAssignmentTeacher(teacher);
+  setAssignmentYear(currentYear);
+  setAssignmentClass(firstClassId);
+  setAssignmentSubjects(
+    existing
+      .filter((item) => item.classId === firstClassId)
+      .map((item) => item.subjectId)
+  );
+
+  setShowAssignments(true);
+  setShowForm(false);
+  setMessage("");
+  setError("");
+}
+async function saveTeacherAssignments() {
+  if (
+    !schoolId ||
+    !assignmentTeacher ||
+    !assignmentYear ||
+    !assignmentClass ||
+    assignmentSubjects.length === 0 ||
+    savingAssignment
+  ) {
+    setError("Select an academic year, class and at least one subject.");
+    return;
+  }
+
+  const selectedClass = classes.find((item) => item.id === assignmentClass);
+  const selectedYear = academicYears.find((item) => item.id === assignmentYear);
+
+  if (!selectedClass || !selectedYear) {
+    setError("The selected class or academic year could not be found.");
+    return;
+  }
+
+  setSavingAssignment(true);
+  setError("");
+  setMessage("");
+
+  try {
+    const existing = assignments.filter(
+      (item) =>
+        item.teacherId === assignmentTeacher.id &&
+        item.academicYearId === assignmentYear &&
+        item.classId === assignmentClass
+    );
+
+    const { writeBatch } = await import("firebase/firestore");
+    const batch = writeBatch(db);
+
+   // Activate selected subjects or create deterministic assignment records.
+for (const subjectId of assignmentSubjects) {
+  const subject = subjects.find((item) => item.id === subjectId);
+  if (!subject) continue;
+
+  const assignmentId = `${assignmentTeacher.id}__${assignmentYear}__${assignmentClass}__${subjectId}`;
+
+  const assignmentRef = doc(
+    db,
+    "schools",
+    schoolId,
+    "teacherAssignments",
+    assignmentId
+  );
+
+  batch.set(
+    assignmentRef,
+    {
+      teacherId: assignmentTeacher.id,
+      teacherUid: assignmentTeacher.authUid || null,
+      teacherName: assignmentTeacher.name,
+      teacherEmail: assignmentTeacher.email,
+      academicYearId: assignmentYear,
+      academicYearName: selectedYear.name,
+      classId: assignmentClass,
+      className: selectedClass.name,
+      subjectId,
+      subjectName: subject.name,
+      status: "active",
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  // Retire any older assignment record for this same subject.
+  const oldRecord = existing.find(
+    (item) => item.subjectId === subjectId && item.id !== assignmentId
+  );
+
+  if (oldRecord) {
+    batch.update(
+      doc(db, "schools", schoolId, "teacherAssignments", oldRecord.id),
+      {
+        status: "inactive",
+        updatedAt: serverTimestamp(),
+      }
+    );
+  }
+}
+
+// Deactivate previously assigned subjects that were unchecked.
+for (const previous of existing) {
+  if (!assignmentSubjects.includes(previous.subjectId)) {
+    batch.update(
+      doc(db, "schools", schoolId, "teacherAssignments", previous.id),
+      {
+        status: "inactive",
+        updatedAt: serverTimestamp(),
+      }
+    );
+  }
+}
+    await batch.commit();
+
+    setMessage("Teacher assignments saved successfully.");
+    setShowAssignments(false);
+    setAssignmentTeacher(null);
+    setAssignmentSubjects([]);
+    setAssignmentClass("");
+  } catch (err) {
+    console.error(err);
+    setError("Unable to save assignments. Check Firestore permissions.");
+  } finally {
+    setSavingAssignment(false);
+  }
+}
+
   async function toggleArchive(teacher: Teacher) {
     if (!schoolId) return;
 
@@ -411,6 +663,164 @@ async function copyInvitationLink() {
       will invalidate the previous pending link.
     </p>
   </div>
+)}
+
+{showAssignments && assignmentTeacher && (
+  <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p className="text-xs font-bold tracking-wider text-blue-700">
+          TEACHING RESPONSIBILITIES
+        </p>
+        <h2 className="mt-1 text-lg font-bold text-slate-900">
+          Assign classes and subjects
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Teacher: {assignmentTeacher.name}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          setShowAssignments(false);
+          setAssignmentTeacher(null);
+        }}
+        className="rounded-lg border px-4 py-2 text-sm"
+      >
+        Close
+      </button>
+    </div>
+
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label className="mb-2 block text-sm font-semibold">
+          Academic year
+        </label>
+        <select
+          value={assignmentYear}
+          onChange={(e) => {
+            const yearId = e.target.value;
+            setAssignmentYear(yearId);
+
+            const existing = assignments.filter(
+              (item) =>
+                item.teacherId === assignmentTeacher.id &&
+                item.academicYearId === yearId &&
+                item.classId === assignmentClass &&
+                item.status === "active"
+            );
+
+            setAssignmentSubjects(existing.map((item) => item.subjectId));
+          }}
+          className="w-full rounded-xl border p-3"
+        >
+          <option value="">Select academic year</option>
+          {academicYears.map((year) => (
+            <option key={year.id} value={year.id}>
+              {year.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="mb-2 block text-sm font-semibold">
+          Class
+        </label>
+        <select
+          value={assignmentClass}
+          onChange={(e) => {
+            const classId = e.target.value;
+            setAssignmentClass(classId);
+
+            const existing = assignments.filter(
+              (item) =>
+                item.teacherId === assignmentTeacher.id &&
+                item.academicYearId === assignmentYear &&
+                item.classId === classId &&
+                item.status === "active"
+            );
+
+            setAssignmentSubjects(existing.map((item) => item.subjectId));
+          }}
+          className="w-full rounded-xl border p-3"
+        >
+          <option value="">Select class</option>
+          {classes.map((schoolClass) => (
+            <option key={schoolClass.id} value={schoolClass.id}>
+              {schoolClass.name}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+
+    <div className="mt-6">
+      <h3 className="mb-1 font-semibold text-slate-900">
+        Subjects handled by this teacher
+      </h3>
+      <p className="mb-3 text-xs text-slate-500">
+        Select all subjects this teacher teaches in the selected class.
+      </p>
+
+      {subjects.length === 0 ? (
+        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+          No active subjects found. Register subjects first.
+        </p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {subjects.map((subject) => (
+            <label
+              key={subject.id}
+              className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                checked={assignmentSubjects.includes(subject.id)}
+                onChange={(e) => {
+                  setAssignmentSubjects((previous) =>
+                    e.target.checked
+                      ? [...previous, subject.id]
+                      : previous.filter((id) => id !== subject.id)
+                  );
+                }}
+                className="h-4 w-4"
+              />
+              <span>
+                <span className="block font-medium">{subject.name}</span>
+                <span className="text-xs text-slate-400">
+                  {subject.code}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <div className="mt-6 flex flex-wrap gap-3">
+      <button
+        type="button"
+        onClick={saveTeacherAssignments}
+        disabled={savingAssignment}
+        className="rounded-xl bg-blue-950 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {savingAssignment ? "Saving assignments..." : "Save assignments"}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          setShowAssignments(false);
+          setAssignmentTeacher(null);
+        }}
+        className="rounded-xl border px-5 py-3 text-sm"
+      >
+        Cancel
+      </button>
+    </div>
+  </section>
 )}
 
       {showForm && (
@@ -636,6 +1046,15 @@ async function copyInvitationLink() {
 </td>
                     <td className="px-5 py-3">
                       <div className="flex gap-3 whitespace-nowrap">
+                 {teacher.status === "active" && (
+  <button
+    type="button"
+    onClick={() => startAssignment(teacher)}
+    className="font-medium text-purple-700 hover:underline"
+  >
+    Assign
+  </button>
+)}
                      {teacher.status === "active" &&
   teacher.accountStatus !== "active" && (
     <button

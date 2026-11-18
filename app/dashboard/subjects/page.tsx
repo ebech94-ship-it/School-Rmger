@@ -10,6 +10,7 @@ import {
   onSnapshot,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
@@ -21,9 +22,37 @@ type Subject = {
   category: string;
   coefficient: number;
   status: "active" | "archived";
+  specialty?: string;
+  coefficientsByForm?: Record<string, number | null>;
+  coefficientNeedsReview?: boolean;
 };
-
+const EPS_CURRICULUM = [
+  { name: "English", code: "ENG", category: "General", values: [4, 4, 3, 3, 3] },
+  { name: "French", code: "FRE", category: "General", values: [4, 4, 3, 3, 3] },
+  { name: "Mathematics", code: "MAT", category: "General", values: [4, 4, 3, 3, 3] },
+  { name: "Physical Science", code: "PHY", category: "General", values: [2, 2, 2, 2, 2] },
+  { name: "Civics and Moral Education", code: "CME", category: "General", values: [1, 1, 1, 1, 1] },
+  { name: "Computer Science", code: "CSC", category: "General", values: [1, 1, 1, 1, 1] },
+  { name: "Economic Geography", code: "EGE", category: "General", values: [null, null, 1, 1, 1] },
+  { name: "Trade and Training", code: "TT", category: "General", values: [2, null, null, null, null] },
+  { name: "Health, Safety and Environment", code: "HSE", category: "General", values: [1, 1, 1, 1, 1] },
+  { name: "Entrepreneurship", code: "ENT", category: "General", values: [null, null, 1, 1, 1] },
+  { name: "Technical Drawing", code: "TD", category: "Professional", values: [4, 2, 2, 2, 2] },
+  { name: "Technology and Diagram", code: "TDI", category: "Professional", values: [3, 4, 4, 3, 2] },
+  { name: "Practice Techno-Diagram", code: "PTD", category: "Practical", values: [6, 5, 5, 5, 3] },
+  { name: "Electrical and Electronic Circuits", code: "EEC", category: "Professional", values: [null, 3, 3, 3, 3] },
+  { name: "Test and Measurement", code: "TM", category: "Professional", values: [null, 3, 3, 3, 2] },
+  { name: "Electrical Machines and Magnetism", code: "EMM", category: "Professional", values: [null, null, 2, 3, 3] },
+  { name: "Sports and Physical Education", code: "SPE", category: "Other", values: [2, 2, 2, 2, null] },
+  { name: "Manual Work", code: "MW", category: "Other", values: [1, 1, null, null, null] },
+  {
+    name: "Guidance Counselling",
+    code: "GC",
+    category: "Other",
+    values: [null, null, null, null, null],
+  },];
 export default function SubjectsPage() {
+const [importingCurriculum, setImportingCurriculum] = useState(false);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [schoolId, setSchoolId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -76,14 +105,17 @@ export default function SubjectsPage() {
             const records = snapshot.docs.map((item) => {
               const data = item.data();
 
-              return {
-                id: item.id,
-                name: data.name || "",
-                code: data.code || "",
-                category: data.category || "General",
-                coefficient: Number(data.coefficient) || 1,
-                status: data.status === "archived" ? "archived" : "active",
-              } as Subject;
+       return {
+  id: item.id,
+  name: data.name || "",
+  code: data.code || "",
+  category: data.category || "General",
+  coefficient: Number(data.coefficient) || 1,
+  specialty: data.specialty || "",
+  coefficientsByForm: data.coefficientsByForm || undefined,
+  coefficientNeedsReview: data.coefficientNeedsReview === true,
+  status: data.status === "archived" ? "archived" : "active",
+} as Subject;
             });
 
             records.sort((a, b) => a.name.localeCompare(b.name));
@@ -202,6 +234,85 @@ export default function SubjectsPage() {
     }
   }
 
+async function importElectricalPowerSystems() {
+  if (!schoolId || importingCurriculum) return;
+
+  if (
+    !window.confirm(
+      "Import the Electrical Power Systems curriculum for Forms 1–5? Existing subjects will not be overwritten."
+    )
+  ) {
+    return;
+  }
+
+  setImportingCurriculum(true);
+  setError("");
+  setMessage("");
+
+  try {
+    const subjectsRef = collection(db, "schools", schoolId, "subjects");
+    const batch = writeBatch(db);
+
+    let added = 0;
+    let skipped = 0;
+
+    for (const item of EPS_CURRICULUM) {
+      const exists = subjects.some(
+        (subject) =>
+          subject.code.toLowerCase() === item.code.toLowerCase() ||
+          subject.name.toLowerCase() === item.name.toLowerCase()
+      );
+
+      if (exists) {
+        skipped++;
+        continue;
+      }
+
+      const coefficientsByForm = {
+        Form1: item.values[0],
+        Form2: item.values[1],
+        Form3: item.values[2],
+        Form4: item.values[3],
+        Form5: item.values[4],
+      };
+
+      const defaultCoefficient =
+        item.values.find((value) => value !== null) ?? 1;
+
+      const newSubject = doc(subjectsRef);
+
+      batch.set(newSubject, {
+        name: item.name,
+        code: item.code,
+        category: item.category,
+        specialty: "Electrical Power Systems",
+        coefficientsByForm,
+        coefficient: defaultCoefficient,
+        coefficientNeedsReview:
+  item.name === "Guidance Counselling",
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      added++;
+    }
+
+    if (added > 0) {
+      await batch.commit();
+    }
+
+    setMessage(
+      `Curriculum import complete: ${added} subjects added, ${skipped} existing subjects skipped.`
+    );
+  } catch (err) {
+    console.error(err);
+    setError("Unable to import curriculum. Please check your connection and permissions.");
+  } finally {
+    setImportingCurriculum(false);
+  }
+}
+
   async function toggleArchive(subject: Subject) {
     if (!schoolId) return;
 
@@ -302,6 +413,34 @@ export default function SubjectsPage() {
           {error}
         </div>
       )}
+      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="font-bold text-blue-950">
+              Quick curriculum setup
+            </h2>
+            <p className="mt-1 text-sm text-blue-800">
+              Load the supplied Electrical Power Systems curriculum,
+              including its Form 1–5 subject coefficients.
+            </p>
+            <p className="mt-2 text-xs text-blue-700">
+              Existing subjects are preserved. You can still add or edit
+              subjects manually.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={importElectricalPowerSystems}
+            disabled={importingCurriculum || loading}
+            className="rounded-xl bg-blue-950 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {importingCurriculum
+              ? "Importing..."
+              : "Load Electrical Power Systems"}
+          </button>
+        </div>
+      </section>
 
       {showForm && (
         <form
@@ -468,7 +607,7 @@ export default function SubjectsPage() {
                   <th className="px-5 py-3">Code</th>
                   <th className="px-5 py-3">Subject</th>
                   <th className="px-5 py-3">Category</th>
-                  <th className="px-5 py-3">Coefficient</th>
+                  <th className="px-5 py-3">Coefficients</th>
                   <th className="px-5 py-3">Status</th>
                   <th className="px-5 py-3">Actions</th>
                 </tr>
@@ -482,9 +621,17 @@ export default function SubjectsPage() {
                     </td>
                     <td className="px-5 py-3">{subject.name}</td>
                     <td className="px-5 py-3">{subject.category}</td>
-                    <td className="px-5 py-3 font-bold text-blue-800">
-                      {subject.coefficient}
-                    </td>
+ <td className="px-5 py-3 font-bold text-blue-800">
+  {subject.coefficientNeedsReview ? (
+    <span className="text-amber-700">Needs configuration</span>
+  ) : subject.coefficientsByForm ? (
+    ["Form1", "Form2", "Form3", "Form4", "Form5"]
+      .map((form) => subject.coefficientsByForm?.[form] ?? "—")
+      .join(" / ")
+  ) : (
+    subject.coefficient
+  )}
+</td>
                     <td className="px-5 py-3">
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-medium ${

@@ -49,7 +49,9 @@ type Enrollment = {
 
 export default function StudentsPage() {
   const [schoolId, setSchoolId] = useState("");
-  const [loading, setLoading] = useState(true);
+ const [loading, setLoading] = useState(true);
+const [classesLoaded, setClassesLoaded] = useState(false);
+const [studentsLoaded, setStudentsLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -144,9 +146,13 @@ export default function StudentsPage() {
             })) as SchoolClass[];
 
             records.sort((a, b) => a.name.localeCompare(b.name));
-            setClasses(records);
+           setClasses(records);
+setClassesLoaded(true);
           },
-          () => setError("Could not load school classes.")
+         () => {
+  setError("Could not load school classes.");
+  setClassesLoaded(true);
+}
         );
       } catch {
         setError("Unable to verify your administrator account.");
@@ -213,9 +219,13 @@ export default function StudentsPage() {
         })) as Student[];
 
         records.sort((a, b) => a.fullName.localeCompare(b.fullName));
-        setStudents(records);
+       setStudents(records);
+setStudentsLoaded(true);
       },
-      () => setError("Could not load the student register.")
+     () => {
+  setError("Could not load the student register.");
+  setStudentsLoaded(true);
+}
     );
 
     return () => stopStudents();
@@ -355,27 +365,49 @@ const studentRows = useMemo(() => {
         updatedAt: serverTimestamp(),
       };
 
-     if (editingId) {
-  const enrollmentRef = doc(
+ if (editingId) {
+  const enrollmentsRef = collection(
     db,
     "schools",
     schoolId,
     "academicYears",
     selectedYear,
-    "enrollments",
-    editingId
+    "enrollments"
   );
 
-  await updateDoc(
+  const matchingEnrollments = await getDocs(
+    query(enrollmentsRef, where("studentId", "==", editingId))
+  );
+
+  let enrollmentRef;
+
+  if (!matchingEnrollments.empty) {
+    enrollmentRef = matchingEnrollments.docs[0].ref;
+  } else {
+    const fallbackRef = doc(enrollmentsRef, editingId);
+    const fallbackSnapshot = await getDoc(fallbackRef);
+
+    if (!fallbackSnapshot.exists()) {
+      throw new Error("Student enrollment record was not found.");
+    }
+
+    enrollmentRef = fallbackRef;
+  }
+
+  const batch = writeBatch(db);
+
+  batch.update(
     doc(db, "schools", schoolId, "students", editingId),
     studentData
   );
 
-  await updateDoc(enrollmentRef, {
+  batch.update(enrollmentRef, {
     classId: selectedClass.id,
     className: selectedClass.name,
     updatedAt: serverTimestamp(),
   });
+
+  await batch.commit();
 
   setMessage("Student details updated successfully.");
 } else {
@@ -517,7 +549,10 @@ const studentRows = useMemo(() => {
         </div>
       </section>
 
-      {loading ? (
+     {loading ||
+!classesLoaded ||
+!studentsLoaded ||
+(!!selectedYear && enrollmentData.yearId !== selectedYear) ? (
         <div className="rounded-xl border bg-white p-8 text-center text-lg text-slate-600">
           Loading student register...
         </div>
