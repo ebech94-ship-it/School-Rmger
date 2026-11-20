@@ -219,6 +219,7 @@ export default function ReportsPage() {
   const [focusedStudentId, setFocusedStudentId] = useState("");
   const [previewStudentIds, setPreviewStudentIds] = useState<string[]>([]);
   const [printRequested, setPrintRequested] = useState(false);
+const [previewOpen, setPreviewOpen] = useState(false);
 
   // Load school data
   useEffect(() => {
@@ -798,51 +799,55 @@ export default function ReportsPage() {
   };
 
   const previewOne = () => {
-    const id = getOneStudentId();
-    if (id) setPreviewStudentIds([id]);
-  };
+  const id = getOneStudentId();
+  if (!id) return;
+  setPreviewStudentIds([id]);
+  setPreviewOpen(true);
+};
 
-  const previewSelected = () => {
-    if (selectedStudentIds.length > 0) {
-      setPreviewStudentIds(
-        classStudents
-          .filter((student) => selectedStudentIds.includes(student.id))
-          .map((student) => student.id)
-      );
-    }
-  };
+const previewSelected = () => {
+  const ids = classStudents
+    .filter((student) => selectedStudentIds.includes(student.id))
+    .map((student) => student.id);
 
-  const previewAll = () => {
-    setPreviewStudentIds(classStudents.map((student) => student.id));
-  };
+  if (!ids.length) return;
+  setPreviewStudentIds(ids);
+  setPreviewOpen(true);
+};
 
-  const printOne = () => {
-    const id = getOneStudentId();
-    if (!id) return;
+const previewAll = () => {
+  const ids = classStudents.map((student) => student.id);
+  if (!ids.length) return;
+  setPreviewStudentIds(ids);
+  setPreviewOpen(true);
+};
 
-    setPreviewStudentIds([id]);
-    setPrintRequested(true);
-  };
+const printOne = () => {
+  const id = getOneStudentId();
+  if (!id) return;
 
-  const printSelected = () => {
-    const ids = classStudents
-      .filter((student) => selectedStudentIds.includes(student.id))
-      .map((student) => student.id);
+  setPreviewStudentIds([id]);
+  setPrintRequested(true);
+};
 
-    if (ids.length === 0) return;
+const printSelected = () => {
+  const ids = classStudents
+    .filter((student) => selectedStudentIds.includes(student.id))
+    .map((student) => student.id);
 
-    setPreviewStudentIds(ids);
-    setPrintRequested(true);
-  };
+  if (!ids.length) return;
 
-  const printAll = () => {
-    const ids = classStudents.map((student) => student.id);
-    if (ids.length === 0) return;
+  setPreviewStudentIds(ids);
+  setPrintRequested(true);
+};
 
-    setPreviewStudentIds(ids);
-    setPrintRequested(true);
-  };
+const printAll = () => {
+  const ids = classStudents.map((student) => student.id);
+  if (!ids.length) return;
 
+  setPreviewStudentIds(ids);
+  setPrintRequested(true);
+};
   if (loading) {
     return (
       <main className="p-8 text-center">
@@ -1112,22 +1117,41 @@ export default function ReportsPage() {
       </section>
 
       {/* REPORT PREVIEW */}
-      <section className="print-area">
+<section
+  className={`print-area ${
+    previewOpen
+      ? "fixed inset-0 z-50 overflow-y-auto bg-gray-200 p-2 md:p-6"
+      : "hidden"
+  }`}
+>
         {previewReports.length > 0 ? (
           <div className="space-y-6">
-            <div className="flex items-center justify-between print:hidden">
-              <h2 className="text-lg font-bold">
-                Report Preview ({previewReports.length})
-              </h2>
+           <div className="sticky top-0 z-20 flex items-center justify-between gap-2 bg-white p-3 shadow print:hidden">
+  <h2 className="text-lg font-bold">
+    Report Preview ({previewReports.length})
+  </h2>
 
-              <button
-                type="button"
-                onClick={() => setPreviewStudentIds([])}
-                className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
-              >
-                Close Preview
-              </button>
-            </div>
+  <div className="flex gap-2">
+    <button
+      type="button"
+      onClick={() => window.print()}
+      className="rounded bg-blue-700 px-4 py-2 text-sm font-bold text-white"
+    >
+      Print
+    </button>
+
+    <button
+      type="button"
+      onClick={() => {
+        setPreviewOpen(false);
+        setPreviewStudentIds([]);
+      }}
+      className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
+    >
+      Close
+    </button>
+  </div>
+</div>
 
             <div className="max-h-[85vh] space-y-6 overflow-y-auto rounded-lg bg-gray-100 p-3 print:max-h-none print:space-y-0 print:overflow-visible print:bg-white print:p-0">
               {previewReports.map((report) => {
