@@ -134,6 +134,24 @@ function getCoefficient(
     : null;
 }
 
+function positionLabel(position: number | null): string {
+  if (position === null) return "—";
+  if (position % 100 >= 11 && position % 100 <= 13) {
+    return `${position}th`;
+  }
+
+  switch (position % 10) {
+    case 1:
+      return `${position}st`;
+    case 2:
+      return `${position}nd`;
+    case 3:
+      return `${position}rd`;
+    default:
+      return `${position}th`;
+  }
+}
+
 export default function ClassCouncilPage() {
   const router = useRouter();
 
@@ -161,8 +179,9 @@ export default function ClassCouncilPage() {
 
   const [edits, setEdits] = useState<Record<string, CouncilEdit>>({});
   const [generalRemark, setGeneralRemark] = useState("");
+  const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
 
-  // Load school records
+  // Load school records and verify Technical Admin access.
   useEffect(() => {
     let active = true;
 
@@ -205,7 +224,9 @@ export default function ClassCouncilPage() {
           getDocs(collection(db, "schools", currentSchoolId, "classes")),
           getDocs(collection(db, "schools", currentSchoolId, "students")),
           getDocs(collection(db, "schools", currentSchoolId, "subjects")),
-          getDocs(collection(db, "schools", currentSchoolId, "teacherAssignments")),
+          getDocs(
+            collection(db, "schools", currentSchoolId, "teacherAssignments")
+          ),
         ]);
 
         if (!active) return;
@@ -215,32 +236,27 @@ export default function ClassCouncilPage() {
           ...item.data(),
         })) as AcademicYear[];
 
+        const loadedClasses = classesSnap.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        })) as SchoolClass[];
+
         setSchoolId(currentSchoolId);
         setUserId(user.uid);
         setAcademicYears(years);
-
-        const loadedClasses = classesSnap.docs.map((item) => ({
-  id: item.id,
-  ...item.data(),
-})) as SchoolClass[];
-
-setClasses(loadedClasses);
-setSelectedClass(loadedClasses[0]?.id || "");
-
+        setClasses(loadedClasses);
         setStudents(
           studentsSnap.docs.map((item) => ({
             id: item.id,
             ...item.data(),
           })) as Student[]
         );
-
         setSubjects(
           subjectsSnap.docs.map((item) => ({
             id: item.id,
             ...item.data(),
           })) as Subject[]
         );
-
         setAssignments(
           assignmentsSnap.docs.map((item) => ({
             id: item.id,
@@ -250,9 +266,14 @@ setSelectedClass(loadedClasses[0]?.id || "");
 
         const activeYear = years.find((year) => year.isActive);
         setSelectedYear(activeYear?.id || years[0]?.id || "");
+        setSelectedClass(loadedClasses[0]?.id || "");
 
         if (years.length === 0) {
           setError("No academic year has been created yet.");
+        }
+
+        if (loadedClasses.length === 0) {
+          setError("No classes have been created for this school.");
         }
       } catch (err) {
         if (active) {
@@ -271,12 +292,16 @@ setSelectedClass(loadedClasses[0]?.id || "");
     };
   }, [router]);
 
-  // Load terms for selected year
+  // Load terms for the selected academic year.
   useEffect(() => {
     let active = true;
 
     async function loadTerms() {
-      if (!schoolId || !selectedYear) return;
+      if (!schoolId || !selectedYear) {
+        setTerms([]);
+        setSelectedTerm("");
+        return;
+      }
 
       try {
         const snapshot = await getDocs(
@@ -303,6 +328,10 @@ setSelectedClass(loadedClasses[0]?.id || "");
 
         const openTerm = loaded.find((term) => term.status === "open");
         setSelectedTerm(openTerm?.id || loaded[0]?.id || "");
+
+        if (loaded.length === 0) {
+          setError("No terms have been created for this academic year.");
+        }
       } catch {
         if (active) setError("Unable to load academic terms.");
       }
@@ -315,13 +344,16 @@ setSelectedClass(loadedClasses[0]?.id || "");
     };
   }, [schoolId, selectedYear]);
 
-
-  // Load enrollments, marks and previously saved council record
+  // Load enrollments, marks and saved council record.
   useEffect(() => {
     let active = true;
 
     async function loadClassData() {
       if (!schoolId || !selectedYear || !selectedTerm || !selectedClass) {
+        setEnrollments([]);
+        setMarks([]);
+        setEdits({});
+        setGeneralRemark("");
         return;
       }
 
@@ -386,23 +418,23 @@ setSelectedClass(loadedClasses[0]?.id || "");
 
         if (councilSnap.exists()) {
           const saved = councilSnap.data();
-
           const savedEdits: Record<string, CouncilEdit> = {};
 
           if (Array.isArray(saved.students)) {
-           saved.students.forEach(
-  (student: {
-    studentId?: string;
-    remark?: string;
-    decision?: string;
-  }) => {
-              if (student.studentId) {
-                savedEdits[student.studentId] = {
-                  remark: student.remark || "Good",
-                  decision: student.decision || "Pending",
-                };
+            saved.students.forEach(
+              (student: {
+                studentId?: string;
+                remark?: string;
+                decision?: string;
+              }) => {
+                if (student.studentId) {
+                  savedEdits[student.studentId] = {
+                    remark: student.remark || "Good",
+                    decision: student.decision || "Pending",
+                  };
+                }
               }
-            });
+            );
           }
 
           setEdits(savedEdits);
@@ -475,10 +507,14 @@ setSelectedClass(loadedClasses[0]?.id || "");
           className: enrollment.className,
         };
       })
-      .filter((student): student is Student & {
-        classId: string;
-        className: string;
-      } => student !== null)
+      .filter(
+        (
+          student
+        ): student is Student & {
+          classId: string;
+          className: string;
+        } => student !== null
+      )
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
   }, [enrollments, students, selectedClass]);
 
@@ -487,11 +523,15 @@ setSelectedClass(loadedClasses[0]?.id || "");
       let weightedTotal = 0;
       let coefficientTotal = 0;
       let complete = classAssignments.length > 0;
+      const issues: string[] = [];
 
       classAssignments.forEach((assignment) => {
         const subject = subjects.find(
           (item) => item.id === assignment.subjectId
         );
+
+        const subjectName =
+          subject?.name || assignment.subjectName || "Unknown subject";
 
         const coefficient = currentClass
           ? getCoefficient(subject, currentClass)
@@ -507,19 +547,33 @@ setSelectedClass(loadedClasses[0]?.id || "");
         const sequence1 = numberOrNull(mark?.sequence1);
         const sequence2 = numberOrNull(mark?.sequence2);
 
-        if (
-          !mark ||
-          mark.status !== "finalized" ||
-          sequence1 === null ||
-          sequence2 === null ||
-          coefficient === null
-        ) {
+        if (!mark) {
           complete = false;
+          issues.push(`${subjectName}: marks not entered`);
+          return;
+        }
+
+        if (mark.status !== "finalized") {
+          complete = false;
+          issues.push(`${subjectName}: not finalized`);
+          return;
+        }
+
+        if (sequence1 === null || sequence2 === null) {
+          complete = false;
+          issues.push(`${subjectName}: sequence mark missing`);
+          return;
+        }
+
+        if (coefficient === null) {
+          complete = false;
+          issues.push(`${subjectName}: coefficient needs attention`);
           return;
         }
 
         const category = (subject?.category || "").toUpperCase();
 
+        // Existing calculation policy preserved.
         if (category === "PE" || category === "MANUAL LABOUR") {
           return;
         }
@@ -530,15 +584,24 @@ setSelectedClass(loadedClasses[0]?.id || "");
         coefficientTotal += coefficient;
       });
 
+      if (classAssignments.length === 0) {
+        issues.push("No active teacher subject assignments found");
+      }
+
       const average =
         complete && coefficientTotal > 0
           ? weightedTotal / coefficientTotal / 2
           : null;
 
+      if (complete && coefficientTotal === 0) {
+        issues.push("No academic subject coefficients available");
+      }
+
       return {
         ...student,
         average,
         complete: complete && average !== null,
+        issues,
       };
     });
   }, [
@@ -560,13 +623,22 @@ setSelectedClass(loadedClasses[0]?.id || "");
   }, [studentResults]);
 
   const rankedStudents = useMemo(() => {
-    return studentResults.map((student) => ({
-      ...student,
-      position:
-        student.average === null
-          ? null
-          : ranking.findIndex((item) => item.id === student.id) + 1,
-    }));
+    return studentResults
+      .map((student) => ({
+        ...student,
+        position:
+          student.average === null
+            ? null
+            : ranking.findIndex((item) => item.id === student.id) + 1,
+      }))
+      .sort((a, b) => {
+        if (a.average === null && b.average === null) {
+          return a.fullName.localeCompare(b.fullName);
+        }
+        if (a.average === null) return 1;
+        if (b.average === null) return -1;
+        return b.average - a.average;
+      });
   }, [studentResults, ranking]);
 
   const classAverage =
@@ -575,9 +647,17 @@ setSelectedClass(loadedClasses[0]?.id || "");
         ranking.length
       : null;
 
+  const incompleteStudents = studentResults.filter(
+    (student) => !student.complete
+  );
+
   const allResultsFinalized =
     studentResults.length > 0 &&
     studentResults.every((student) => student.complete);
+
+  const displayedStudents = showIncompleteOnly
+    ? rankedStudents.filter((student) => !student.complete)
+    : rankedStudents;
 
   function updateStudent(
     studentId: string,
@@ -592,12 +672,14 @@ setSelectedClass(loadedClasses[0]?.id || "");
         [field]: value,
       },
     }));
+
+    setMessage("");
   }
 
   async function saveCouncil() {
     if (!allResultsFinalized) {
       setError(
-        "Council cannot be saved yet. Ensure every subject has finalized marks and configured coefficients."
+        "Council cannot be saved yet. Check the incomplete students and resolve their outstanding subject results."
       );
       return;
     }
@@ -667,87 +749,141 @@ setSelectedClass(loadedClasses[0]?.id || "");
   }
 
   if (loading) {
-    return <main className="p-8 text-center">Loading Class Council...</main>;
+    return (
+      <main className="flex min-h-[50vh] items-center justify-center p-8">
+        <p className="text-sm text-gray-500">Loading Class Council...</p>
+      </main>
+    );
   }
 
   return (
-    <main className="space-y-6 p-4 md:p-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+    <main className="min-h-screen space-y-6 bg-slate-50 p-4 md:p-8">
+      {/* Page heading and actions */}
+      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold">Class Council</h1>
-          <p className="text-sm text-gray-500">
-            Review finalized academic performance and record council decisions.
+          <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
+            Academic Administration
+          </p>
+          <h1 className="mt-1 text-2xl font-bold text-slate-900 md:text-3xl">
+            Class Council
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Review finalized results, record decisions and prepare council
+            records.
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => window.print()}
             disabled={studentResults.length === 0 || dataLoading}
-            className="rounded-lg border px-4 py-2 text-sm font-semibold disabled:opacity-50"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Print
+            Print Register
           </button>
 
           <button
             onClick={saveCouncil}
             disabled={saving || dataLoading || !allResultsFinalized}
-            className="rounded-lg bg-blue-700 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Council"}
           </button>
         </div>
       </div>
 
+      {/* Messages */}
       {error && (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          {error}
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 print:hidden">
+          <strong>Attention:</strong> {error}
         </div>
       )}
 
       {message && (
-        <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-700">
-          {message}
+        <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 print:hidden">
+          <strong>Saved:</strong> {message}
         </div>
       )}
 
-      <div className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-3 print:hidden">
-        <label className="text-sm font-medium">
+      {/* Workflow guidance */}
+      <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 print:hidden">
+        <h2 className="font-bold text-blue-950">
+          Technical Admin — Workflow Guide
+        </h2>
+
+        <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg bg-white p-3">
+            <p className="font-bold text-slate-800">1. Teacher</p>
+            <p className="mt-1 text-slate-600">
+              Enters and submits subject marks.
+            </p>
+          </div>
+          <div className="rounded-lg bg-white p-3">
+            <p className="font-bold text-slate-800">2. Class Master</p>
+            <p className="mt-1 text-slate-600">
+              Reviews submitted marks and returns corrections where necessary.
+            </p>
+          </div>
+          <div className="rounded-lg bg-white p-3">
+            <p className="font-bold text-slate-800">3. Technical Admin</p>
+            <p className="mt-1 text-slate-600">
+              Finalizes reviewed subject results, then conducts Class Council.
+            </p>
+          </div>
+          <div className="rounded-lg bg-white p-3">
+            <p className="font-bold text-slate-800">4. Next: Principal</p>
+            <p className="mt-1 text-slate-600">
+              Reviews and signs off council records before results publication
+              and report-card issuance.
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-3 text-xs text-blue-900">
+          This page currently saves and prints council records. Principal
+          approval and results publication are subsequent workflow stages.
+        </p>
+      </section>
+
+      {/* Selection filters */}
+      <section className="grid gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-3 print:hidden">
+        <label className="text-sm font-semibold text-slate-700">
           Academic Year
           <select
             value={selectedYear}
             onChange={(event) => setSelectedYear(event.target.value)}
-            className="mt-1 w-full rounded-lg border p-2"
+            className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             {academicYears.map((year) => (
               <option key={year.id} value={year.id}>
-                {year.name}
+                {year.name}{year.isActive ? " (Active)" : ""}
               </option>
             ))}
           </select>
         </label>
 
-        <label className="text-sm font-medium">
+        <label className="text-sm font-semibold text-slate-700">
           Term
           <select
             value={selectedTerm}
             onChange={(event) => setSelectedTerm(event.target.value)}
-            className="mt-1 w-full rounded-lg border p-2"
+            className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             {terms.map((term) => (
               <option key={term.id} value={term.id}>
                 {term.name}
+                {term.status === "open" ? " (Open)" : ""}
               </option>
             ))}
           </select>
         </label>
 
-        <label className="text-sm font-medium">
+        <label className="text-sm font-semibold text-slate-700">
           Class
           <select
             value={selectedClass}
             onChange={(event) => setSelectedClass(event.target.value)}
-            className="mt-1 w-full rounded-lg border p-2"
+            className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             {classes.map((schoolClass) => (
               <option key={schoolClass.id} value={schoolClass.id}>
@@ -756,100 +892,200 @@ setSelectedClass(loadedClasses[0]?.id || "");
             ))}
           </select>
         </label>
-      </div>
+      </section>
 
       {dataLoading && (
-        <p className="text-sm text-gray-500 print:hidden">
-          Loading class records...
-        </p>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800 print:hidden">
+          Loading the selected class records...
+        </div>
       )}
 
+      {/* Summary cards */}
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-gray-500">Enrolled Students</p>
-          <p className="mt-1 text-2xl font-bold">{classStudents.length}</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">
+            Enrolled Students
+          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">
+            {classStudents.length}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">Active class enrolments</p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-gray-500">Students Ranked</p>
-          <p className="mt-1 text-2xl font-bold">{ranking.length}</p>
-        </div>
-
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-gray-500">Class Average</p>
-          <p className="mt-1 text-2xl font-bold">
-            {display(classAverage)} /20
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">
+            Students Ranked
+          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">
+            {ranking.length}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Students with calculated averages
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-gray-500">Results Status</p>
-          <p className="mt-1 text-lg font-bold">
-            {allResultsFinalized ? "Finalized" : "Incomplete"}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">Class Average</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">
+            {display(classAverage)}
+            <span className="ml-1 text-base font-medium text-slate-500">
+              /20
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Based on ranked students
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">Incomplete Results</p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">
+            {incompleteStudents.length}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Students requiring attention
           </p>
         </div>
       </section>
 
-      {!allResultsFinalized && classStudents.length > 0 && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 print:hidden">
-          Some students still have missing marks, unconfigured coefficients or
-          results that are not finalized. Council saving is disabled until
-          their results are complete.
-        </div>
-      )}
+      {/* Completion status */}
+      <section
+        className={`rounded-xl border p-4 print:hidden ${
+          allResultsFinalized
+            ? "border-green-200 bg-green-50"
+            : "border-amber-200 bg-amber-50"
+        }`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2
+              className={`font-bold ${
+                allResultsFinalized ? "text-green-900" : "text-amber-900"
+              }`}
+            >
+              {allResultsFinalized
+                ? "Class results are ready for council"
+                : "Class council is not ready"}
+            </h2>
+            <p
+              className={`mt-1 text-sm ${
+                allResultsFinalized ? "text-green-800" : "text-amber-800"
+              }`}
+            >
+              {allResultsFinalized
+                ? "All enrolled students have complete finalized results. You can record and save council decisions."
+                : "Resolve the outstanding subject results before saving the council record."}
+            </p>
+          </div>
 
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-bold ${
+              allResultsFinalized
+                ? "bg-green-100 text-green-800"
+                : "bg-amber-100 text-amber-800"
+            }`}
+          >
+            {allResultsFinalized ? "READY" : "ACTION REQUIRED"}
+          </span>
+        </div>
+
+        {!allResultsFinalized && classStudents.length > 0 && (
+          <button
+            onClick={() => setShowIncompleteOnly((value) => !value)}
+            className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+          >
+            {showIncompleteOnly
+              ? "Show all students"
+              : `Show incomplete students (${incompleteStudents.length})`}
+          </button>
+        )}
+      </section>
+
+      {/* Council register */}
       {classStudents.length === 0 ? (
-        <div className="rounded-xl border bg-white p-8 text-center text-gray-500">
-          No active students are enrolled in this class for the selected
-          academic year.
+        <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+          <h2 className="font-bold text-slate-800">No enrolled students</h2>
+          <p className="mt-2 text-sm text-slate-500">
+            No active students were found in this class for the selected
+            academic year.
+          </p>
         </div>
       ) : (
-        <section className="overflow-hidden rounded-xl border bg-white">
-          <div className="border-b p-4">
-            <h2 className="font-bold">
-              {currentClass?.level} {currentClass?.name} — Council Register
-            </h2>
-            <p className="text-sm text-gray-500">
-              {currentYear?.name} · {currentTerm?.name}
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4">
+            <div>
+              <h2 className="font-bold text-slate-900">
+                {currentClass?.level} {currentClass?.name} — Council Register
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {currentYear?.name} · {currentTerm?.name}
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              {displayedStudents.length} of {classStudents.length} students
+              displayed
             </p>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[950px] text-left text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-600">
+            <table className="w-full min-w-[1050px] text-left text-sm">
+              <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
                 <tr>
-                  <th className="p-3">#</th>
+                  <th className="p-3">No.</th>
                   <th className="p-3">Student</th>
                   <th className="p-3">Admission No.</th>
                   <th className="p-3">Average /20</th>
                   <th className="p-3">Position</th>
                   <th className="p-3">Class Remark</th>
                   <th className="p-3">Decision</th>
-                  <th className="p-3">Status</th>
+                  <th className="p-3">Result Status</th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y">
-                {rankedStudents.map((student, index) => (
-                  <tr key={student.id} className="align-middle">
-                    <td className="p-3">{index + 1}</td>
-                    <td className="p-3 font-semibold">{student.fullName}</td>
-                    <td className="p-3">{student.admissionNumber || "—"}</td>
-                    <td className="p-3 font-bold">
+              <tbody className="divide-y divide-slate-100">
+                {displayedStudents.map((student, index) => (
+                  <tr
+                    key={student.id}
+                    className={`align-middle hover:bg-slate-50 ${
+                      !student.complete ? "bg-amber-50/40" : ""
+                    }`}
+                  >
+                    <td className="p-3 text-slate-500">{index + 1}</td>
+
+                    <td className="p-3">
+                      <p className="font-semibold text-slate-900">
+                        {student.fullName}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {student.gender || "Gender not recorded"}
+                      </p>
+                    </td>
+
+                    <td className="p-3 text-slate-600">
+                      {student.admissionNumber || "—"}
+                    </td>
+
+                    <td className="p-3 font-bold text-slate-900">
                       {display(student.average)}
                     </td>
-                    <td className="p-3">
-                      {student.position
-                        ? `${student.position}${student.position === 1 ? "st" : student.position === 2 ? "nd" : student.position === 3 ? "rd" : "th"}`
-                        : "—"}
+
+                    <td className="p-3 font-semibold text-slate-700">
+                      {positionLabel(student.position)}
                     </td>
+
                     <td className="p-3">
                       <select
                         value={edits[student.id]?.remark || "Good"}
                         onChange={(event) =>
-                          updateStudent(student.id, "remark", event.target.value)
+                          updateStudent(
+                            student.id,
+                            "remark",
+                            event.target.value
+                          )
                         }
-                        className="w-full rounded-lg border p-2 print:hidden"
+                        disabled={!student.complete}
+                        className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 print:hidden"
                       >
                         {remarkOptions.map((remark) => (
                           <option key={remark} value={remark}>
@@ -861,6 +1097,7 @@ setSelectedClass(loadedClasses[0]?.id || "");
                         {edits[student.id]?.remark || "Good"}
                       </span>
                     </td>
+
                     <td className="p-3">
                       <select
                         value={edits[student.id]?.decision || "Pending"}
@@ -871,7 +1108,8 @@ setSelectedClass(loadedClasses[0]?.id || "");
                             event.target.value
                           )
                         }
-                        className="w-full rounded-lg border p-2 print:hidden"
+                        disabled={!student.complete}
+                        className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 print:hidden"
                       >
                         {decisionOptions.map((decision) => (
                           <option key={decision} value={decision}>
@@ -883,39 +1121,95 @@ setSelectedClass(loadedClasses[0]?.id || "");
                         {edits[student.id]?.decision || "Pending"}
                       </span>
                     </td>
+
                     <td className="p-3">
                       <span
-                        className={
+                        className={`rounded-full px-2.5 py-1 text-xs font-bold ${
                           student.complete
-                            ? "font-semibold text-green-700"
-                            : "font-semibold text-amber-700"
-                        }
+                            ? "bg-green-100 text-green-800"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
                       >
                         {student.complete ? "Complete" : "Incomplete"}
                       </span>
+
+                      {!student.complete && (
+                        <div className="mt-2 max-w-[220px] space-y-1 text-xs text-amber-800 print:hidden">
+                          {student.issues.map((issue, issueIndex) => (
+                            <p key={`${student.id}-${issueIndex}`}>• {issue}</p>
+                          ))}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
+
+                {displayedStudents.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="p-8 text-center text-sm text-slate-500"
+                    >
+                      No incomplete students found.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
+          </div>
+
+          <div className="border-t border-slate-200 bg-slate-50 p-3 text-xs text-slate-500 print:hidden">
+            Incomplete students are highlighted. Their outstanding subject
+            requirements are displayed in the Result Status column.
           </div>
         </section>
       )}
 
-      <section className="rounded-xl border bg-white p-4">
-        <h2 className="font-bold">General Council Remarks</h2>
+      {/* General council remarks */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="font-bold text-slate-900">General Council Remarks</h2>
+        <p className="mt-1 text-sm text-slate-500 print:hidden">
+          Record general observations, recommendations or matters arising
+          during the council meeting.
+        </p>
+
         <textarea
           value={generalRemark}
-          onChange={(event) => setGeneralRemark(event.target.value)}
+          onChange={(event) => {
+            setGeneralRemark(event.target.value);
+            setMessage("");
+          }}
           rows={4}
           placeholder="Enter general observations, recommendations or council notes..."
-          className="mt-3 w-full rounded-lg border p-3 text-sm print:hidden"
+          className="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 print:hidden"
         />
+
         <p className="hidden whitespace-pre-wrap print:block">
           {generalRemark || "—"}
         </p>
       </section>
 
+      {/* Next workflow stage */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 print:hidden">
+        <h2 className="font-bold text-slate-900">What happens after Class Council?</h2>
+        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+          <li>Save the completed Class Council record.</li>
+          <li>Print the register for the necessary signatures.</li>
+          <li>
+            Submit the council record to the Principal or School Administration
+            for review and sign-off.
+          </li>
+          <li>
+            After approval, proceed to results publication and report-card
+            issuance.
+          </li>
+        </ol>
+        <p className="mt-3 text-xs text-slate-500">
+          Principal approval and publication are not performed by this page.
+        </p>
+      </section>
+
+      {/* Print signatures */}
       <div className="hidden print:block">
         <div className="mt-10 grid grid-cols-2 gap-12 text-center text-sm">
           <div>
@@ -956,6 +1250,10 @@ setSelectedClass(loadedClasses[0]?.id || "");
 
           tr {
             page-break-inside: avoid;
+          }
+
+          section {
+            box-shadow: none !important;
           }
         }
       `}</style>

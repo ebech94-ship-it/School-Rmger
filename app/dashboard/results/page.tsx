@@ -145,39 +145,42 @@ export default function ResultsManagementPage() {
 
                   const groupId = `${yearId}__${termId}__${classId}__${subjectId}__${teacherId}`;
 
-                  const status = (
-                    data.status || "draft"
-                  ) as ResultStatus;
+                const validStatuses: ResultStatus[] = [
+  "draft",
+  "submitted",
+  "reviewed",
+  "finalized",
+];
 
+const status: ResultStatus = validStatuses.includes(data.status)
+  ? data.status
+  : "draft";
                   const existing = grouped.get(groupId);
 
-                  if (existing) {
-                    existing.markCount += 1;
+                 if (existing) {
+  existing.markCount += 1;
 
-                    if (status === "submitted") {
-                      existing.status = "submitted";
-                    } else if (
-                      status === "draft" &&
-                      existing.status !== "submitted"
-                    ) {
-                      existing.status = "draft";
-                    } else if (
-                      status === "reviewed" &&
-                      existing.status !== "submitted" &&
-                      existing.status !== "draft"
-                    ) {
-                      existing.status = "reviewed";
-                    }
+  const priority: Record<ResultStatus, number> = {
+    draft: 0,
+    submitted: 1,
+    reviewed: 2,
+    finalized: 3,
+  };
 
-                    if (
-                      data.submittedAt &&
-                      (!existing.submittedAt ||
-                        data.submittedAt.toMillis() >
-                          existing.submittedAt.toMillis())
-                    ) {
-                      existing.submittedAt = data.submittedAt;
-                    }
-                  } else {
+  // The group takes the least-complete status.
+  if (priority[status] < priority[existing.status]) {
+    existing.status = status;
+  }
+
+  if (
+    data.submittedAt instanceof Timestamp &&
+    (!existing.submittedAt ||
+      data.submittedAt.toMillis() >
+        existing.submittedAt.toMillis())
+  ) {
+    existing.submittedAt = data.submittedAt;
+  }
+} else {
                     grouped.set(groupId, {
                       id: groupId,
                       academicYearId: yearId,
@@ -308,9 +311,10 @@ export default function ResultsManagementPage() {
       });
 
       if (
-        matchingDocs.length !== result.markCount ||
-        matchingDocs.some((item) => item.data().status !== "reviewed")
-      ) {
+  matchingDocs.length === 0 ||
+  matchingDocs.length !== result.markCount ||
+  matchingDocs.some((item) => item.data().status !== "reviewed")
+) {
         setError(
           "These marks are not all reviewed. Refresh the page and check the Class Master review."
         );
@@ -414,7 +418,36 @@ export default function ResultsManagementPage() {
           ))}
         </div>
       </section>
+<section className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+  <h2 className="font-bold text-blue-950">
+    What happens after finalization?
+  </h2>
 
+  <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-blue-900">
+    <li>
+      Teachers submit marks and Class Masters review them.
+    </li>
+    <li>
+      Technical Admin finalizes all reviewed subject results.
+    </li>
+    <li>
+      Technical Admin proceeds to Class Council to review averages,
+      rankings and promotion decisions.
+    </li>
+    <li>
+      The Principal or School Administration reviews and signs off
+      the council records.
+    </li>
+    <li>
+      Approved results proceed to publication and report-card issuance.
+    </li>
+  </ol>
+
+  <p className="mt-3 text-xs text-blue-800">
+    Finalization on this page does not publish results. It prepares
+    finalized marks for Class Council.
+  </p>
+</section>
       <section className="overflow-hidden rounded-xl border bg-white">
         <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
