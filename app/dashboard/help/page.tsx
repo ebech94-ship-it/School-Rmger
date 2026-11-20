@@ -80,7 +80,7 @@ const sections = [
     title: "8. Enter Marks and Calculate Results",
     description: "Record student performance carefully.",
     steps: [
-      "Open Marks & Results.",
+      "Open REPORT CARDS.",
       "Select the appropriate class, academic period and examination.",
       "Select the relevant subjects.",
       "Enter each student's marks carefully.",

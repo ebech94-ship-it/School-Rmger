@@ -26,6 +26,29 @@ type Subject = {
   coefficientsByForm?: Record<string, number | null>;
   coefficientNeedsReview?: boolean;
 };
+type SchoolClass = {
+  id: string;
+  name: string;
+  status: "active" | "archived";
+};
+
+type AssessmentDefinition = {
+  id: string;
+  name: string;
+  maxMark: number;
+  order: number;
+};
+
+type ClassSubject = {
+  id: string;
+  classId: string;
+  className: string;
+  subjectId: string;
+  subjectName: string;
+  coefficient: number;
+  status: "active" | "inactive";
+  assessments?: AssessmentDefinition[];
+};
 const EPS_CURRICULUM = [
   { name: "English", code: "ENG", category: "General", values: [4, 4, 3, 3, 3] },
   { name: "French", code: "FRE", category: "General", values: [4, 4, 3, 3, 3] },
@@ -68,9 +91,21 @@ const [importingCurriculum, setImportingCurriculum] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+const [classSubjects, setClassSubjects] = useState<ClassSubject[]>([]);
+const [configuringSubject, setConfiguringSubject] = useState<Subject | null>(null);
+const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
+const [classCoefficients, setClassCoefficients] = useState<Record<string, string>>({});
+const [savingClassConfig, setSavingClassConfig] = useState(false);
+
+const [classAssessments, setClassAssessments] = useState<
+  Record<string, AssessmentDefinition[]>
+>({});
+
   useEffect(() => {
     let unsubscribeSubjects: (() => void) | undefined;
-
+let unsubscribeClasses: (() => void) | undefined;
+let unsubscribeClassSubjects: (() => void) | undefined;
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         window.location.replace("/login");
@@ -98,6 +133,48 @@ const [importingCurriculum, setImportingCurriculum] = useState(false);
 
         const currentSchoolId = data.schoolId;
         setSchoolId(currentSchoolId);
+const classesRef = collection(db, "schools", currentSchoolId, "classes");
+const classSubjectsRef = collection(
+  db,
+  "schools",
+  currentSchoolId,
+  "classSubjects"
+);
+
+unsubscribeClasses = onSnapshot(classesRef, (snapshot) => {
+  const records = snapshot.docs.map((item) => ({
+    id: item.id,
+    name: item.data().name || "",
+    status: item.data().status === "archived" ? "archived" : "active",
+  })) as SchoolClass[];
+
+  records.sort((a, b) => a.name.localeCompare(b.name));
+  setClasses(records);
+});
+
+unsubscribeClassSubjects = onSnapshot(
+  classSubjectsRef,
+  (snapshot) => {
+    const records = snapshot.docs.map((item) => {
+      const data = item.data();
+
+   return {
+  id: item.id,
+  classId: data.classId || "",
+  className: data.className || "",
+  subjectId: data.subjectId || "",
+  subjectName: data.subjectName || "",
+  coefficient: Number(data.coefficient) || 1,
+  status: data.status === "inactive" ? "inactive" : "active",
+  assessments: Array.isArray(data.assessments)
+    ? data.assessments
+    : [],
+} as ClassSubject;
+    });
+
+    setClassSubjects(records);
+  }
+);
 
         unsubscribeSubjects = onSnapshot(
           collection(db, "schools", currentSchoolId, "subjects"),
@@ -135,10 +212,12 @@ const [importingCurriculum, setImportingCurriculum] = useState(false);
       }
     });
 
-    return () => {
-      unsubscribeAuth();
-      unsubscribeSubjects?.();
-    };
+   return () => {
+  unsubscribeAuth();
+  unsubscribeSubjects?.();
+  unsubscribeClasses?.();
+  unsubscribeClassSubjects?.();
+};
   }, []);
 
   function resetForm() {
@@ -313,6 +392,184 @@ async function importElectricalPowerSystems() {
   }
 }
 
+function openClassConfiguration(subject: Subject) {
+  const existingLinks = classSubjects.filter(
+    (item) =>
+      item.subjectId === subject.id &&
+      item.status === "active"
+  );
+
+  setConfiguringSubject(subject);
+  setSelectedClassIds(existingLinks.map((item) => item.classId));
+
+  const coefficients: Record<string, string> = {};
+  const assessments: Record<string, AssessmentDefinition[]> = {};
+
+  classes.forEach((schoolClass) => {
+    const existing = existingLinks.find(
+      (item) => item.classId === schoolClass.id
+    );
+
+    coefficients[schoolClass.id] = String(
+      existing?.coefficient ?? subject.coefficient
+    );
+
+    assessments[schoolClass.id] = (existing?.assessments ?? [])
+      .map((assessment) => ({ ...assessment }))
+      .sort((a, b) => a.order - b.order);
+  });
+
+  setClassCoefficients(coefficients);
+  setClassAssessments(assessments);
+  setError("");
+  setMessage("");
+}
+function addAssessment(classId: string) {
+  setClassAssessments((current) => {
+    const existing = current[classId] ?? [];
+
+    return {
+      ...current,
+      [classId]: [
+        ...existing,
+        {
+          id: `assessment-${Date.now()}`,
+          name: "",
+          maxMark: 40,
+          order: existing.length + 1,
+        },
+      ],
+    };
+  });
+}
+
+function updateAssessment(
+  classId: string,
+  assessmentId: string,
+  field: "name" | "maxMark",
+  value: string
+) {
+  setClassAssessments((current) => ({
+    ...current,
+    [classId]: (current[classId] ?? []).map((assessment) =>
+      assessment.id === assessmentId
+        ? {
+            ...assessment,
+            [field]: field === "maxMark" ? Number(value) : value,
+          }
+        : assessment
+    ),
+  }));
+}
+
+function removeAssessment(classId: string, assessmentId: string) {
+  setClassAssessments((current) => ({
+    ...current,
+    [classId]: (current[classId] ?? [])
+      .filter((assessment) => assessment.id !== assessmentId)
+      .map((assessment, index) => ({
+        ...assessment,
+        order: index + 1,
+      })),
+  }));
+}
+
+async function saveClassConfiguration() {
+  if (!schoolId || !configuringSubject || savingClassConfig) return;
+
+  for (const classId of selectedClassIds) {
+    const value = Number(classCoefficients[classId]);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      setError("Every selected class must have a valid coefficient greater than zero.");
+      return;
+    }
+  }
+
+  setSavingClassConfig(true);
+  setError("");
+  setMessage("");
+
+  try {
+    const batch = writeBatch(db);
+
+    const existingLinks = classSubjects.filter(
+      (item) => item.subjectId === configuringSubject.id
+    );
+
+  for (const schoolClass of classes.filter(
+  (item) => item.status === "active"
+)) {
+      const existing = existingLinks.find(
+        (item) => item.classId === schoolClass.id
+      );
+
+      const isSelected = selectedClassIds.includes(schoolClass.id);
+
+      if (!isSelected && !existing) continue;
+
+      const linkRef = existing
+        ? doc(
+            db,
+            "schools",
+            schoolId,
+            "classSubjects",
+            existing.id
+          )
+        : doc(
+            db,
+            "schools",
+            schoolId,
+            "classSubjects",
+            `${encodeURIComponent(schoolClass.id)}__${encodeURIComponent(configuringSubject.id)}`
+          );
+
+      if (isSelected) {
+        batch.set(
+          linkRef,
+          {
+            classId: schoolClass.id,
+            className: schoolClass.name,
+            subjectId: configuringSubject.id,
+            subjectName: configuringSubject.name,
+           coefficient: Number(classCoefficients[schoolClass.id]),
+assessments: (classAssessments[schoolClass.id] ?? []).map(
+  (assessment, index) => ({
+    ...assessment,
+    name: assessment.name.trim(),
+    order: index + 1,
+  })
+),
+status: "active",
+updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        batch.set(
+          linkRef,
+          {
+            status: "inactive",
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    }
+
+    await batch.commit();
+
+    setMessage("Class-subject configuration saved successfully.");
+    setConfiguringSubject(null);
+    setSelectedClassIds([]);
+    setClassCoefficients({});
+  } catch (err) {
+    console.error(err);
+    setError("Unable to save class-subject configuration. Check Firestore permissions.");
+  } finally {
+    setSavingClassConfig(false);
+  }
+}
   async function toggleArchive(subject: Subject) {
     if (!schoolId) return;
 
@@ -533,6 +790,167 @@ async function importElectricalPowerSystems() {
           </div>
         </form>
       )}
+{configuringSubject && (
+  <section className="rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+    <div className="mb-4">
+      <h2 className="font-bold text-slate-900">
+        Configure classes: {configuringSubject.name}
+      </h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Select the classes that offer this subject and set its coefficient in each class.
+      </p>
+    </div>
+
+    {classes.filter((item) => item.status === "active").length === 0 ? (
+      <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+        No active classes found. Register classes before configuring subject offerings.
+      </p>
+    ) : (
+      <div className="space-y-3">
+        {classes
+          .filter((item) => item.status === "active")
+          .map((schoolClass) => {
+            const selected = selectedClassIds.includes(schoolClass.id);
+
+            return (
+              <div
+                key={schoolClass.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3"
+              >
+                <label className="flex items-center gap-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={(e) => {
+                      setSelectedClassIds((current) =>
+                        e.target.checked
+                          ? [...current, schoolClass.id]
+                          : current.filter((id) => id !== schoolClass.id)
+                      );
+                    }}
+                  />
+                  {schoolClass.name}
+                </label>
+
+              {selected && (
+  <div className="w-full space-y-3 sm:max-w-xl">
+    <div className="flex items-center gap-2">
+      <label className="text-xs text-slate-500">
+        Coefficient
+      </label>
+      <input
+        type="number"
+        min="0.1"
+        step="0.1"
+        value={classCoefficients[schoolClass.id] ?? "1"}
+        onChange={(e) =>
+          setClassCoefficients((current) => ({
+            ...current,
+            [schoolClass.id]: e.target.value,
+          }))
+        }
+        className="w-24 rounded-lg border p-2 text-sm"
+      />
+    </div>
+
+    <div className="rounded-xl bg-slate-50 p-3">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-700">
+          Assessments
+        </p>
+        <button
+          type="button"
+          onClick={() => addAssessment(schoolClass.id)}
+          className="text-xs font-semibold text-blue-700 hover:underline"
+        >
+          + Add assessment
+        </button>
+      </div>
+
+      {(classAssessments[schoolClass.id] ?? []).length === 0 ? (
+        <p className="text-xs text-amber-700">
+          No assessments configured yet.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {(classAssessments[schoolClass.id] ?? []).map((assessment) => (
+            <div
+              key={assessment.id}
+              className="flex flex-wrap items-center gap-2"
+            >
+              <input
+                value={assessment.name}
+                onChange={(e) =>
+                  updateAssessment(
+                    schoolClass.id,
+                    assessment.id,
+                    "name",
+                    e.target.value
+                  )
+                }
+                placeholder="Assessment name"
+                className="min-w-0 flex-1 rounded-lg border p-2 text-sm"
+              />
+
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={assessment.maxMark}
+                onChange={(e) =>
+                  updateAssessment(
+                    schoolClass.id,
+                    assessment.id,
+                    "maxMark",
+                    e.target.value
+                  )
+                }
+                title="Maximum mark"
+                className="w-24 rounded-lg border p-2 text-sm"
+              />
+
+              <button
+                type="button"
+                onClick={() =>
+                  removeAssessment(schoolClass.id, assessment.id)
+                }
+                className="text-xs font-semibold text-red-600 hover:underline"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+)}
+              </div>
+            );
+          })}
+      </div>
+    )}
+
+    <div className="mt-5 flex flex-wrap gap-3">
+      <button
+        type="button"
+        onClick={saveClassConfiguration}
+        disabled={savingClassConfig}
+        className="rounded-xl bg-blue-950 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        {savingClassConfig ? "Saving..." : "Save class configuration"}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setConfiguringSubject(null)}
+        className="rounded-xl border px-5 py-3 text-sm"
+      >
+        Cancel
+      </button>
+    </div>
+  </section>
+)}
 
       <section className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
@@ -622,15 +1040,15 @@ async function importElectricalPowerSystems() {
                     <td className="px-5 py-3">{subject.name}</td>
                     <td className="px-5 py-3">{subject.category}</td>
  <td className="px-5 py-3 font-bold text-blue-800">
-  {subject.coefficientNeedsReview ? (
-    <span className="text-amber-700">Needs configuration</span>
-  ) : subject.coefficientsByForm ? (
-    ["Form1", "Form2", "Form3", "Form4", "Form5"]
-      .map((form) => subject.coefficientsByForm?.[form] ?? "—")
-      .join(" / ")
-  ) : (
-    subject.coefficient
-  )}
+{subject.coefficientNeedsReview ? (
+  <span className="text-amber-700">Needs configuration</span>
+) : subject.coefficientsByForm ? (
+  Object.entries(subject.coefficientsByForm)
+    .map(([className, value]) => `${className}: ${value ?? "—"}`)
+    .join(" | ")
+) : (
+  subject.coefficient
+)}
 </td>
                     <td className="px-5 py-3">
                       <span
@@ -651,6 +1069,14 @@ async function importElectricalPowerSystems() {
                         >
                           Edit
                         </button>
+<button
+  type="button"
+  onClick={() => openClassConfiguration(subject)}
+  className="font-medium text-blue-700 hover:underline"
+>
+  Configure classes
+</button>
+
                         <button
                           onClick={() => toggleArchive(subject)}
                           className="font-medium text-slate-600 hover:underline"

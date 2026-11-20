@@ -2,6 +2,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  calculateSubjectResult,
+  type AssessmentDefinition,
+  type AssessmentMark,
+} from "@/lib/results-calculation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
@@ -53,19 +58,25 @@ type Subject = {
   id: string;
   name: string;
   category: string;
-  coefficient?: number;
-  coefficientsByForm?: Record<string, number>;
-  coefficientNeedsReview?: boolean;
   status: string;
 };
+
+type ClassSubjectConfig = {
+  id: string;
+  classId: string;
+  subjectId: string;
+  coefficient: number | null;
+  assessments: AssessmentDefinition[];
+  status: string;
+};
+
 type Mark = {
   id: string;
   studentId: string;
   studentName: string;
   classId: string;
   subjectId: string;
-  sequence1: number | null;
-  sequence2: number | null;
+  assessmentMarks?: AssessmentMark[];
   status: string;
 };
 
@@ -101,38 +112,6 @@ function display(value: number | null): string {
   return value === null ? "—" : value.toFixed(2);
 }
 
-function getFormKey(schoolClass: SchoolClass): string {
-  const text = `${schoolClass.level} ${schoolClass.name}`;
-  const match = text.match(/form\s*([1-5])/i);
-
-  if (match) return `Form${match[1]}`;
-
-  const numberMatch = text.match(/\b([1-5])\b/);
-  return numberMatch ? `Form${numberMatch[1]}` : "";
-}
-
-function getCoefficient(
-  subject: Subject | undefined,
-  schoolClass: SchoolClass
-): number | null {
-  if (!subject || subject.coefficientNeedsReview) return null;
-
-  const formKey = getFormKey(schoolClass);
-  const formCoefficient = formKey
-    ? subject.coefficientsByForm?.[formKey]
-    : undefined;
-
-  const coefficient =
-    typeof formCoefficient === "number"
-      ? formCoefficient
-      : subject.coefficient;
-
-  return typeof coefficient === "number" &&
-    Number.isFinite(coefficient) &&
-    coefficient > 0
-    ? coefficient
-    : null;
-}
 
 function positionLabel(position: number | null): string {
   if (position === null) return "—";
@@ -172,6 +151,9 @@ export default function ClassCouncilPage() {
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [marks, setMarks] = useState<Mark[]>([]);
+  const [classSubjectConfigs, setClassSubjectConfigs] = useState<
+  ClassSubjectConfig[]
+>([]);
 
   const [selectedYear, setSelectedYear] = useState("");
   const [selectedTerm, setSelectedTerm] = useState("");
@@ -213,20 +195,25 @@ export default function ClassCouncilPage() {
 
         const currentSchoolId = profile.schoolId;
 
-        const [
-          yearsSnap,
-          classesSnap,
-          studentsSnap,
-          subjectsSnap,
-          assignmentsSnap,
-        ] = await Promise.all([
-          getDocs(collection(db, "schools", currentSchoolId, "academicYears")),
-          getDocs(collection(db, "schools", currentSchoolId, "classes")),
-          getDocs(collection(db, "schools", currentSchoolId, "students")),
-          getDocs(collection(db, "schools", currentSchoolId, "subjects")),
-          getDocs(
-            collection(db, "schools", currentSchoolId, "teacherAssignments")
-          ),
+      const [
+  yearsSnap,
+  classesSnap,
+  studentsSnap,
+  subjectsSnap,
+  assignmentsSnap,
+  classSubjectsSnap,
+] = await Promise.all([
+  getDocs(collection(db, "schools", currentSchoolId, "academicYears")),
+  getDocs(collection(db, "schools", currentSchoolId, "classes")),
+  getDocs(collection(db, "schools", currentSchoolId, "students")),
+  getDocs(collection(db, "schools", currentSchoolId, "subjects")),
+  getDocs(
+    collection(db, "schools", currentSchoolId, "teacherAssignments")
+  ),
+  getDocs(
+    collection(db, "schools", currentSchoolId, "classSubjects")
+  ),
+
         ]);
 
         if (!active) return;
@@ -263,7 +250,12 @@ export default function ClassCouncilPage() {
             ...item.data(),
           })) as TeacherAssignment[]
         );
-
+setClassSubjectConfigs(
+  classSubjectsSnap.docs.map((item) => ({
+    id: item.id,
+    ...item.data(),
+  })) as ClassSubjectConfig[]
+);
         const activeYear = years.find((year) => year.isActive);
         setSelectedYear(activeYear?.id || years[0]?.id || "");
         setSelectedClass(loadedClasses[0]?.id || "");
@@ -518,100 +510,138 @@ export default function ClassCouncilPage() {
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
   }, [enrollments, students, selectedClass]);
 
-  const studentResults = useMemo(() => {
-    return classStudents.map((student) => {
-      let weightedTotal = 0;
-      let coefficientTotal = 0;
-      let complete = classAssignments.length > 0;
-      const issues: string[] = [];
+  
+    const studentResults = useMemo(() => {
+  return classStudents.map((student) => {
+    let weightedTotal = 0;
+    let coefficientTotal = 0;
+    let complete = classAssignments.length > 0;
+    const issues: string[] = [];
 
-      classAssignments.forEach((assignment) => {
-        const subject = subjects.find(
-          (item) => item.id === assignment.subjectId
-        );
+    classAssignments.forEach((assignment) => {
+      const subject = subjects.find(
+        (item) => item.id === assignment.subjectId
+      );
 
-        const subjectName =
-          subject?.name || assignment.subjectName || "Unknown subject";
+      const subjectName =
+        subject?.name || assignment.subjectName || "Unknown subject";
 
-        const coefficient = currentClass
-          ? getCoefficient(subject, currentClass)
-          : null;
+      const category = (subject?.category || "").toUpperCase();
 
-        const mark = marks.find(
-          (item) =>
-            item.studentId === student.id &&
-            item.subjectId === assignment.subjectId &&
-            item.classId === selectedClass
-        );
+      const excludedFromAverage =
+        category === "PE" || category === "MANUAL LABOUR";
 
-        const sequence1 = numberOrNull(mark?.sequence1);
-        const sequence2 = numberOrNull(mark?.sequence2);
+      const config = classSubjectConfigs.find(
+        (item) =>
+          item.classId === selectedClass &&
+          item.subjectId === assignment.subjectId
+      );
 
-        if (!mark) {
-          complete = false;
-          issues.push(`${subjectName}: marks not entered`);
-          return;
-        }
+      const configuredAssessments = Array.isArray(config?.assessments)
+        ? config.assessments
+            .filter(
+              (assessment) =>
+                assessment &&
+                typeof assessment.id === "string" &&
+                typeof assessment.maxMark === "number" &&
+                Number.isFinite(assessment.maxMark) &&
+                assessment.maxMark > 0
+            )
+            .slice()
+            .sort((a, b) => a.order - b.order)
+        : [];
 
-        if (mark.status !== "finalized") {
-          complete = false;
-          issues.push(`${subjectName}: not finalized`);
-          return;
-        }
+      const mark = marks.find(
+        (item) =>
+          item.studentId === student.id &&
+          item.subjectId === assignment.subjectId &&
+          item.classId === selectedClass
+      );
 
-        if (sequence1 === null || sequence2 === null) {
-          complete = false;
-          issues.push(`${subjectName}: sequence mark missing`);
-          return;
-        }
-
-        if (coefficient === null) {
-          complete = false;
-          issues.push(`${subjectName}: coefficient needs attention`);
-          return;
-        }
-
-        const category = (subject?.category || "").toUpperCase();
-
-        // Existing calculation policy preserved.
-        if (category === "PE" || category === "MANUAL LABOUR") {
-          return;
-        }
-
-        const subjectAverage = (sequence1 + sequence2) / 2;
-
-        weightedTotal += subjectAverage * coefficient;
-        coefficientTotal += coefficient;
-      });
-
-      if (classAssignments.length === 0) {
-        issues.push("No active teacher subject assignments found");
+      if (!config || configuredAssessments.length === 0) {
+        complete = false;
+        issues.push(`${subjectName}: assessment configuration missing`);
+        return;
       }
 
-      const average =
-        complete && coefficientTotal > 0
-          ? weightedTotal / coefficientTotal / 2
-          : null;
+      if (!mark) {
+        complete = false;
+        issues.push(`${subjectName}: marks not entered`);
+        return;
+      }
 
-      if (complete && coefficientTotal === 0) {
+      if (mark.status !== "finalized") {
+        complete = false;
+        issues.push(`${subjectName}: not finalized`);
+        return;
+      }
+
+      const assessmentMarks: AssessmentMark[] = Array.isArray(
+        mark.assessmentMarks
+      )
+        ? mark.assessmentMarks
+        : [];
+
+      const result = calculateSubjectResult(
+        assessmentMarks,
+        configuredAssessments
+      );
+
+      if (!result.complete || result.percentage === null) {
+        complete = false;
+        issues.push(`${subjectName}: assessment marks incomplete`);
+        return;
+      }
+
+      // Preserve the existing PE and Manual Labour average policy.
+      if (excludedFromAverage) {
+        return;
+      }
+
+      const coefficient = numberOrNull(config.coefficient);
+
+      if (coefficient === null || coefficient <= 0) {
+        complete = false;
+        issues.push(`${subjectName}: coefficient needs attention`);
+        return;
+      }
+
+    weightedTotal += (result.percentage / 5) * coefficient;
+coefficientTotal += coefficient;
+    });
+
+    if (classAssignments.length === 0) {
+      issues.push("No active teacher subject assignments found");
+    }
+
+    if (coefficientTotal === 0) {
+      complete = false;
+
+      if (classAssignments.length > 0 && issues.length === 0) {
         issues.push("No academic subject coefficients available");
       }
+    }
 
-      return {
-        ...student,
-        average,
-        complete: complete && average !== null,
-        issues,
-      };
-    });
-  }, [
-    classStudents,
-    classAssignments,
-    subjects,
-    marks,
-    currentClass,
-    selectedClass,
-  ]);
+    const average =
+      complete && coefficientTotal > 0
+        ? Number((weightedTotal / coefficientTotal).toFixed(2))
+        : null;
+
+    return {
+      ...student,
+      average,
+      complete: complete && average !== null,
+      issues,
+    };
+  });
+}, [
+  classStudents,
+  classAssignments,
+  subjects,
+  classSubjectConfigs,
+  marks,
+  selectedClass,
+]);
 
   const ranking = useMemo(() => {
     return studentResults

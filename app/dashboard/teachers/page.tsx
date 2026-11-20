@@ -36,6 +36,15 @@ type SchoolSubject = {
   code: string;
   status: string;
 };
+type ClassSubject = {
+  id: string;
+  classId: string;
+  className: string;
+  subjectId: string;
+  subjectName: string;
+  coefficient: number;
+  status: "active" | "inactive";
+};
 
 type AcademicYear = {
   id: string;
@@ -60,7 +69,7 @@ export default function TeachersPage() {
 const [subjects, setSubjects] = useState<SchoolSubject[]>([]);
 const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
 const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
-
+const [classSubjects, setClassSubjects] = useState<ClassSubject[]>([]);
 
 const [showAssignments, setShowAssignments] = useState(false);
 const [assignmentTeacher, setAssignmentTeacher] = useState<Teacher | null>(null);
@@ -94,6 +103,7 @@ let unsubscribeClasses: (() => void) | undefined;
 let unsubscribeSubjects: (() => void) | undefined;
 let unsubscribeYears: (() => void) | undefined;
 let unsubscribeAssignments: (() => void) | undefined;
+let unsubscribeClassSubjects: (() => void) | undefined;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -155,7 +165,27 @@ unsubscribeClasses = onSnapshot(
     );
   }
 );
-
+// Load configured class-subject relationships
+unsubscribeClassSubjects = onSnapshot(
+  collection(db, "schools", currentSchoolId, "classSubjects"),
+  (snapshot) => {
+    setClassSubjects(
+      snapshot.docs.map((item) => ({
+        id: item.id,
+        classId: item.data().classId || "",
+        className: item.data().className || "",
+        subjectId: item.data().subjectId || "",
+        subjectName: item.data().subjectName || "",
+        coefficient: Number(item.data().coefficient) || 0,
+        status: item.data().status === "inactive" ? "inactive" : "active",
+      }))
+    );
+  },
+  (err) => {
+    console.error("Class-subject loading error:", err);
+    setError("Unable to load class-subject configuration.");
+  }
+);
 // Load academic years
  unsubscribeYears = onSnapshot(
   collection(db, "schools", currentSchoolId, "academicYears"),
@@ -238,6 +268,7 @@ unsubscribeClasses = onSnapshot(
   unsubscribeSubjects?.();
   unsubscribeYears?.();
   unsubscribeAssignments?.();
+  unsubscribeClassSubjects?.();
 };
   }, []);
 
@@ -407,11 +438,23 @@ function startAssignment(teacher: Teacher) {
   setAssignmentTeacher(teacher);
   setAssignmentYear(currentYear);
   setAssignmentClass(firstClassId);
-  setAssignmentSubjects(
-    existing
-      .filter((item) => item.classId === firstClassId)
-      .map((item) => item.subjectId)
-  );
+  const configuredSubjectIds = classSubjects
+  .filter(
+    (item) =>
+      item.classId === firstClassId &&
+      item.status === "active"
+  )
+  .map((item) => item.subjectId);
+
+setAssignmentSubjects(
+  existing
+    .filter(
+      (item) =>
+        item.classId === firstClassId &&
+        configuredSubjectIds.includes(item.subjectId)
+    )
+    .map((item) => item.subjectId)
+);
 
   setShowAssignments(true);
   setShowForm(false);
@@ -438,7 +481,24 @@ async function saveTeacherAssignments() {
     setError("The selected class or academic year could not be found.");
     return;
   }
+const configuredSubjectIds = classSubjects
+  .filter(
+    (item) =>
+      item.classId === assignmentClass &&
+      item.status === "active"
+  )
+  .map((item) => item.subjectId);
 
+if (
+  assignmentSubjects.length === 0 ||
+  assignmentSubjects.some(
+    (subjectId) => !configuredSubjectIds.includes(subjectId)
+  )
+) {
+  setError("Select only subjects configured for this class.");
+  return;
+}
+  
   setSavingAssignment(true);
   setError("");
   setMessage("");
@@ -507,7 +567,14 @@ for (const subjectId of assignmentSubjects) {
 
 // Deactivate previously assigned subjects that were unchecked.
 for (const previous of existing) {
-  if (!assignmentSubjects.includes(previous.subjectId)) {
+  const isConfiguredForClass = configuredSubjectIds.includes(
+    previous.subjectId
+  );
+
+  if (
+    isConfiguredForClass &&
+    !assignmentSubjects.includes(previous.subjectId)
+  ) {
     batch.update(
       doc(db, "schools", schoolId, "teacherAssignments", previous.id),
       {
@@ -584,6 +651,14 @@ for (const previous of existing) {
 
     return matchesSearch && matchesStatus;
   });
+  const availableSubjects = subjects.filter((subject) =>
+  classSubjects.some(
+    (item) =>
+      item.classId === assignmentClass &&
+      item.subjectId === subject.id &&
+      item.status === "active"
+  )
+);
 
   return (
     <main className="space-y-6 text-slate-800">
@@ -743,7 +818,19 @@ for (const previous of existing) {
                 item.status === "active"
             );
 
-            setAssignmentSubjects(existing.map((item) => item.subjectId));
+           const configuredSubjectIds = classSubjects
+  .filter(
+    (item) =>
+      item.classId === classId &&
+      item.status === "active"
+  )
+  .map((item) => item.subjectId);
+
+setAssignmentSubjects(
+  existing
+    .filter((item) => configuredSubjectIds.includes(item.subjectId))
+    .map((item) => item.subjectId)
+);
           }}
           className="w-full rounded-xl border p-3"
         >
@@ -765,39 +852,45 @@ for (const previous of existing) {
         Select all subjects this teacher teaches in the selected class.
       </p>
 
-      {subjects.length === 0 ? (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-          No active subjects found. Register subjects first.
-        </p>
-      ) : (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {subjects.map((subject) => (
-            <label
-              key={subject.id}
-              className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm hover:bg-slate-50"
-            >
-              <input
-                type="checkbox"
-                checked={assignmentSubjects.includes(subject.id)}
-                onChange={(e) => {
-                  setAssignmentSubjects((previous) =>
-                    e.target.checked
-                      ? [...previous, subject.id]
-                      : previous.filter((id) => id !== subject.id)
-                  );
-                }}
-                className="h-4 w-4"
-              />
-              <span>
-                <span className="block font-medium">{subject.name}</span>
-                <span className="text-xs text-slate-400">
-                  {subject.code}
-                </span>
-              </span>
-            </label>
-          ))}
-        </div>
-      )}
+     {!assignmentClass ? (
+  <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+    Select a class to view its configured subjects.
+  </p>
+) : availableSubjects.length === 0 ? (
+  <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+    No subjects have been configured for this class yet.
+    Ask the administrator to configure its subjects first.
+  </p>
+) : (
+  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    {availableSubjects.map((subject) => (
+      <label
+        key={subject.id}
+        className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm hover:bg-slate-50"
+      >
+        <input
+          type="checkbox"
+          checked={assignmentSubjects.includes(subject.id)}
+          onChange={(e) => {
+            setAssignmentSubjects((previous) =>
+              e.target.checked
+                ? [...previous, subject.id]
+                : previous.filter((id) => id !== subject.id)
+            );
+          }}
+          className="h-4 w-4"
+        />
+        <span>
+          <span className="block font-medium">{subject.name}</span>
+          <span className="text-xs text-slate-400">
+            {subject.code}
+          </span>
+        </span>
+      </label>
+    ))}
+  </div>
+)}
+      
     </div>
 
     <div className="mt-6 flex flex-wrap gap-3">

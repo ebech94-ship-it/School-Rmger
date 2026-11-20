@@ -8,20 +8,29 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
+
 const navigation = [
   { name: "Overview", icon: "⌂", href: "/dashboard" },
-  { name: "Students", icon: "♙", href: "/dashboard/students" },
+
+  // School setup
+  { name: "Academic Calendar", icon: "▦", href: "/dashboard/academic-calendar" },
   { name: "Classes", icon: "▦", href: "/dashboard/classes" },
   { name: "Subjects", icon: "▤", href: "/dashboard/subjects" },
+
+  // People and records
+  { name: "Students", icon: "♙", href: "/dashboard/students" },
   { name: "Teachers", icon: "♧", href: "/dashboard/teachers" },
   { name: "Class Masters", icon: "♙", href: "/dashboard/class-masters" },
-  { name: "Academic Calendar", icon: "▦", href: "/dashboard/academic-calendar" },
-  { name: "Marks & Results", icon: "✎", href: "/dashboard/results" },
+
+  // Results workflow
   { name: "Class Council", icon: "☷", href: "/dashboard/class-council" },
-  { name: "Reports", icon: "▥", href: "/dashboard/reports" },
+  { name: "Report Cards", icon: "✎", href: "/dashboard/results" },
+
+  // General
   { name: "Help & Support", icon: "ⓘ", href: "/dashboard/help" },
   { name: "Settings", icon: "⚙", href: "/dashboard/settings" },
 ];
+
 
 type AdminProfile = {
   displayName?: string;
@@ -228,11 +237,11 @@ export default function AdminShell({
                 <span className="w-6 text-center text-lg">{item.icon}</span>
                 <span>{item.name}</span>
 
-                {item.name === "Marks & Results" && (
-                  <span className="ml-auto rounded-md bg-white/10 px-2 py-0.5 text-[9px]">
-                    RESULTS
-                  </span>
-                )}
+                {item.name === "Report Cards" && (
+  <span className="ml-auto rounded-md bg-white/10 px-2 py-0.5 text-[9px]">
+    PRINT
+  </span>
+)}
               </Link>
             );
           })}

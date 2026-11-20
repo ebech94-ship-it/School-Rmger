@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, } from "react";
 import Link from "next/link";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -16,6 +16,10 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import {
+  calculateSubjectResult,
+  type AssessmentMark,
+} from "@/lib/results-calculation";
 
 type Teacher = {
   id: string;
@@ -54,11 +58,21 @@ type Student = {
   fullName: string;
 };
 
-type MarkEntry = {
-  first: string;
-  second: string;
+type AssessmentDefinition = {
+  id: string;
+  name: string;
+  maxMark: number;
+  order: number;
 };
 
+type ClassSubject = {
+  id: string;
+  classId: string;
+  subjectId: string;
+  assessments: AssessmentDefinition[];
+};
+
+type MarkEntry = Record<string, string>;
 export default function MarksEntryPage() {
   const [schoolId, setSchoolId] = useState("");
   const [teacher, setTeacher] = useState<Teacher | null>(null);
@@ -66,6 +80,8 @@ export default function MarksEntryPage() {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [terms, setTerms] = useState<SchoolTerm[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+const [classSubject, setClassSubject] = useState<ClassSubject | null>(null);
+
  const [marks, setMarks] = useState<Record<string, MarkEntry>>({});
 const [markStatus, setMarkStatus] = useState("draft");
 const [wasReturned, setWasReturned] = useState(false);
@@ -259,7 +275,65 @@ if (!activeYear) {
 const currentClassId = currentAssignment?.classId ?? "";
 const currentSubjectId = currentAssignment?.subjectId ?? "";
 const currentTeacherUid = teacher?.authUid ?? "";
+useEffect(() => {
+  if (!schoolId || !currentClassId || !currentSubjectId) {
+    return;
+  }
 
+  let cancelled = false;
+
+  async function loadClassSubject() {
+
+
+    try {
+      const snapshot = await getDocs(
+        query(
+          collection(db, "schools", schoolId, "classSubjects"),
+          where("classId", "==", currentClassId),
+          where("subjectId", "==", currentSubjectId)
+        )
+      );
+
+      if (cancelled) return;
+
+      if (snapshot.empty) {
+        setError("No subject configuration found for this class.");
+        return;
+      }
+
+      const data = snapshot.docs[0].data();
+
+      setClassSubject({
+        id: snapshot.docs[0].id,
+        classId: data.classId,
+        subjectId: data.subjectId,
+        assessments: Array.isArray(data.assessments)
+          ? data.assessments
+          : [],
+      });
+    } catch (err) {
+      console.error(err);
+      if (!cancelled) {
+        setError("Unable to load subject assessment configuration.");
+      }
+    }
+  }
+
+  void loadClassSubject();
+
+  return () => {
+    cancelled = true;
+  };
+}, [schoolId, currentClassId, currentSubjectId]);
+
+const assessments =
+  classSubject &&
+  classSubject.classId === currentClassId &&
+  classSubject.subjectId === currentSubjectId
+    ? [...classSubject.assessments].sort(
+        (a, b) => a.order - b.order
+      )
+    : [];
 
 const statusMessage =
   markStatus === "draft"
@@ -395,11 +469,324 @@ useEffect(() => {
     !selectedYear ||
     !selectedTerm ||
     !currentClassId ||
-    !currentSubjectId
+    !currentSubjectId ||
+    !classSubject ||
+    classSubject.classId !== currentClassId ||
+    classSubject.subjectId !== currentSubjectId
   ) {
     return;
   }
 
+  const marksRef = collection(
+    db,
+    "schools",
+    schoolId,
+    "academicYears",
+    selectedYear,
+    "terms",
+    selectedTerm,
+    "marks"
+  );
+
+  return onSnapshot(
+    query(marksRef, where("teacherUid", "==", currentTeacherUid)),
+    (snapshot) => {
+      const records: Record<string, MarkEntry> = {};
+      const statuses: string[] = [];
+      let hasReturnRecord = false;
+
+      snapshot.docs.forEach((item) => {
+        const data = item.data();
+
+        if (
+          data.classId !== currentClassId ||
+          data.subjectId !== currentSubjectId
+        ) {
+          return;
+        }
+
+        statuses.push(data.status || "draft");
+
+        if (data.returnedAt) hasReturnRecord = true;
+
+        const studentMarks: MarkEntry = {};
+
+        if (Array.isArray(data.assessmentMarks)) {
+          data.assessmentMarks.forEach((mark: AssessmentMark) => {
+            if (mark.assessmentId != null && mark.mark != null) {
+              studentMarks[mark.assessmentId] = String(mark.mark);
+            }
+          });
+        } else {
+         const configuredAssessments = [...classSubject.assessments].sort(
+  (a, b) => a.order - b.order
+);
+
+if (configuredAssessments[0] && data.sequence1 != null) {
+  studentMarks[configuredAssessments[0].id] = String(data.sequence1);
+}
+
+if (configuredAssessments[1] && data.sequence2 != null) {
+  studentMarks[configuredAssessments[1].id] = String(data.sequence2);
+}
+        }
+
+        records[data.studentId] = studentMarks;
+      });
+
+      setMarks(records);
+
+      const statusPriority = [
+        "draft",
+        "submitted",
+        "reviewed",
+        "finalized",
+      ];
+
+      const highestStatus = statuses.reduce(
+        (highest, status) =>
+          statusPriority.indexOf(status) > statusPriority.indexOf(highest)
+            ? status
+            : highest,
+        "draft"
+      );
+
+      setMarkStatus(highestStatus);
+      setWasReturned(highestStatus === "draft" && hasReturnRecord);
+      setLoadedMarksKey(marksKey);
+    },
+    (err) => {
+      console.error(err);
+      setError("Unable to load previously saved marks.");
+    }
+  );
+}, [
+  schoolId,
+  selectedYear,
+  selectedTerm,
+  currentClassId,
+  currentSubjectId,
+  currentTeacherUid,
+  marksKey,
+  classSubject,
+]);
+
+ function updateMark(
+  studentId: string,
+  assessmentId: string,
+  value: string
+) {
+  if (markStatus !== "draft") return;
+
+  const assessment = assessments.find(
+    (item) => item.id === assessmentId
+  );
+
+  if (!assessment) return;
+
+  if (
+    value !== "" &&
+    (!/^\d+(\.\d{0,2})?$/.test(value) ||
+      Number(value) > assessment.maxMark)
+  ) {
+    return;
+  }
+
+  setMarks((previous) => ({
+    ...previous,
+    [studentId]: {
+      ...previous[studentId],
+      [assessmentId]: value,
+    },
+  }));
+
+  setMessage("");
+  setError("");
+}
+function average(studentId: string): string {
+  const entry = marks[studentId] ?? {};
+
+  const assessmentMarks: AssessmentMark[] = assessments.map(
+    (assessment) => ({
+      assessmentId: assessment.id,
+      assessmentName: assessment.name,
+      mark:
+        entry[assessment.id] === undefined ||
+        entry[assessment.id] === ""
+          ? null
+          : Number(entry[assessment.id]),
+      maxMark: assessment.maxMark,
+      order: assessment.order,
+    })
+  );
+
+  const result = calculateSubjectResult(
+    assessmentMarks,
+    assessments
+  );
+
+  return `${result.totalMark.toFixed(2)} / ${result.totalMaximum.toFixed(2)}`;
+}
+
+  async function saveMarks() {
+  if (
+    !schoolId ||
+    !teacher ||
+    !currentAssignment ||
+    !activeTerm ||
+    !selectedYear ||
+    !classSubject ||
+    assessments.length === 0 ||
+    marksLoading ||
+    saving
+  ) {
+    setError("Select a configured class, subject and open term first.");
+    return;
+  }
+
+  if (students.length === 0) {
+    setError("There are no enrolled students in this class.");
+    return;
+  }
+
+  setSaving(true);
+  setError("");
+  setMessage("");
+
+  try {
+    const batch = writeBatch(db);
+
+    const yearName =
+      academicYears.find((item) => item.id === selectedYear)?.name || "";
+
+    students.forEach((student) => {
+      const entry = marks[student.id] || {};
+
+      const assessmentMarks: AssessmentMark[] = assessments.map(
+        (assessment) => ({
+          assessmentId: assessment.id,
+          assessmentName: assessment.name,
+          mark:
+            entry[assessment.id] === undefined ||
+            entry[assessment.id] === ""
+              ? null
+              : Number(entry[assessment.id]),
+          maxMark: assessment.maxMark,
+          order: assessment.order,
+        })
+      );
+
+      const result = calculateSubjectResult(
+        assessmentMarks,
+        assessments
+      );
+
+      const isLegacyFormat =
+        assessments.length === 2 &&
+        assessments.every((item) => item.maxMark === 40);
+
+      const first = isLegacyFormat
+        ? assessmentMarks[0].mark
+        : null;
+
+      const second = isLegacyFormat
+        ? assessmentMarks[1].mark
+        : null;
+
+      const legacyAverage =
+        first !== null && second !== null
+          ? Number(((first + second) / 2).toFixed(2))
+          : null;
+
+      const markId = `${encodeURIComponent(student.id)}__${encodeURIComponent(
+        currentAssignment.subjectId
+      )}`;
+
+      const markRef = doc(
+        db,
+        "schools",
+        schoolId,
+        "academicYears",
+        selectedYear,
+        "terms",
+        selectedTerm,
+        "marks",
+        markId
+      );
+
+      batch.set(
+        markRef,
+        {
+          studentId: student.id,
+          studentName: student.fullName,
+          admissionNumber: student.admissionNumber,
+          teacherId: teacher.id,
+          teacherUid: teacher.authUid,
+          teacherName: teacher.name,
+          classId: currentAssignment.classId,
+          className: currentAssignment.className,
+          subjectId: currentAssignment.subjectId,
+          subjectName: currentAssignment.subjectName,
+          academicYearId: selectedYear,
+          academicYearName: yearName,
+          termId: selectedTerm,
+          termName: activeTerm.name,
+
+          assessmentMarks,
+          totalMark: result.totalMark,
+          totalMaximum: result.totalMaximum,
+          percentage: result.percentage,
+          complete: result.complete,
+
+          sequence1: first,
+          sequence2: second,
+          average: legacyAverage,
+
+          status: "draft",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+
+    await batch.commit();
+
+    setMessage("Marks saved successfully.");
+  } catch (err) {
+    console.error(err);
+    setError("Unable to save marks. Check your Firestore permissions.");
+  } finally {
+    setSaving(false);
+  }
+}  
+  async function submitForReview() {
+  if (
+    !schoolId ||
+    !teacher ||
+    !currentAssignment ||
+    !activeTerm ||
+    !classSubject ||
+    assessments.length === 0 ||
+    markStatus !== "draft" ||
+    saving
+  ) {
+    return;
+  }
+
+  if (students.length === 0) {
+    setError("No enrolled students found.");
+    return;
+  }
+
+  if (!window.confirm("Submit these marks to the Class Master for review?")) {
+    return;
+  }
+
+  setSaving(true);
+  setError("");
+  setMessage("");
+
+  try {
     const marksRef = collection(
       db,
       "schools",
@@ -411,300 +798,95 @@ useEffect(() => {
       "marks"
     );
 
-   return onSnapshot(
- query(marksRef, where("teacherUid", "==", currentTeacherUid)),
-  (snapshot) => {
-       const records: Record<string, MarkEntry> = {};
-const statuses: string[] = [];
-let hasReturnRecord = false;
-
-        snapshot.docs.forEach((item) => {
-          const data = item.data();
-
-          if (
-           data.classId !== currentClassId ||
-data.subjectId !== currentSubjectId
-          ) {
-            return;
-          }
-statuses.push(data.status || "draft");
-if (data.returnedAt) {
-  hasReturnRecord = true;
-}
-          records[data.studentId] = {
-            first: data.sequence1 === null || data.sequence1 === undefined
-              ? ""
-              : String(data.sequence1),
-            second: data.sequence2 === null || data.sequence2 === undefined
-              ? ""
-              : String(data.sequence2),
-          };
-        });
-
-        setMarks(records);
-
-const statusPriority = ["draft", "submitted", "reviewed", "finalized"];
-const highestStatus = statuses.reduce(
-  (highest, status) =>
-    statusPriority.indexOf(status) > statusPriority.indexOf(highest)
-      ? status
-      : highest,
-  "draft"
-);
-
-setMarkStatus(highestStatus);
-setWasReturned(
-  highestStatus === "draft" && hasReturnRecord
-);
-setLoadedMarksKey(marksKey);
-      },
-      (err) => {
-        console.error(err);
-        setError("Unable to load previously saved marks.");
-      }
+    const snapshot = await getDocs(
+      query(marksRef, where("teacherUid", "==", teacher.authUid))
     );
-  }, [
-  schoolId,
-  selectedYear,
-  selectedTerm,
-  currentClassId,
-  currentSubjectId,
-  currentTeacherUid,
-   marksKey,
-]);
 
-  function updateMark(
-    studentId: string,
-    field: "first" | "second",
-    value: string
-   ) {
-    if (markStatus !== "draft") return;
+    const subjectMarks = snapshot.docs.filter((item) => {
+      const data = item.data();
 
-    if (
-      value !== "" &&
-      (!/^\d+(\.\d{0,2})?$/.test(value) || Number(value) > 40)
-    ) {
+      return (
+        data.classId === currentAssignment.classId &&
+        data.subjectId === currentAssignment.subjectId
+      );
+    });
+
+    const recordsByStudent = new Map(
+      subjectMarks.map((item) => [item.data().studentId, item])
+    );
+
+    const missingStudents = students.filter(
+      (student) => !recordsByStudent.has(student.id)
+    );
+
+    if (missingStudents.length > 0) {
+      setError("Save marks for all students before submitting.");
       return;
     }
 
-    setMarks((previous) => ({
-      ...previous,
-      [studentId]: {
-        first: previous[studentId]?.first ?? "",
-        second: previous[studentId]?.second ?? "",
-        [field]: value,
-      },
-    }));
+    const incompleteStudents = students.filter((student) => {
+      const record = recordsByStudent.get(student.id);
+      const data = record?.data();
 
-    setMessage("");
-    setError("");
-  }
-
-  function average(studentId: string): string {
-    const entry = marks[studentId];
-
-    if (!entry || entry.first === "" || entry.second === "") {
-      return "—";
-    }
-
-    return (
-      (Number(entry.first) + Number(entry.second)) / 2
-    ).toFixed(2);
-  }
-
-  async function saveMarks() {
-   if (
-  !schoolId ||
-  !teacher ||
-  !currentAssignment ||
-  !activeTerm ||
-  !selectedYear ||
-  marksLoading ||
-  saving
-) {
-      setError("Select an assigned class, subject and open term first.");
-      return;
-    }
-
-    if (students.length === 0) {
-      setError("There are no enrolled students in this class.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const batch = writeBatch(db);
-
-      const yearName =
-        academicYears.find((item) => item.id === selectedYear)?.name || "";
-
-      students.forEach((student) => {
-        const entry = marks[student.id] || {
-          first: "",
-          second: "",
-        };
-
-        const first = entry.first === "" ? null : Number(entry.first);
-        const second = entry.second === "" ? null : Number(entry.second);
-
-        const calculatedAverage =
-          first === null || second === null
-            ? null
-            : Number(((first + second) / 2).toFixed(2));
-
-        const markId = `${encodeURIComponent(student.id)}__${encodeURIComponent(
-          currentAssignment.subjectId
-        )}`;
-
-        const markRef = doc(
-          db,
-          "schools",
-          schoolId,
-          "academicYears",
-          selectedYear,
-          "terms",
-          selectedTerm,
-          "marks",
-          markId
+      return !assessments.every((assessment) => {
+        const entry = data?.assessmentMarks?.find(
+          (mark: AssessmentMark) =>
+            mark.assessmentId === assessment.id
         );
 
-        batch.set(
-          markRef,
-          {
-            studentId: student.id,
-            studentName: student.fullName,
-            admissionNumber: student.admissionNumber,
-          teacherId: teacher.id,
-teacherUid: teacher.authUid,
-teacherName: teacher.name,
-            classId: currentAssignment.classId,
-            className: currentAssignment.className,
-            subjectId: currentAssignment.subjectId,
-            subjectName: currentAssignment.subjectName,
-            academicYearId: selectedYear,
-            academicYearName: yearName,
-            termId: selectedTerm,
-            termName: activeTerm.name,
-            sequence1: first,
-            sequence2: second,
-            average: calculatedAverage,
-            status: "draft",
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      });
-
-      await batch.commit();
-
-      setMessage("Marks saved successfully. You can return and edit them later.");
-    } catch (err) {
-      console.error(err);
-      setError("Unable to save marks. Check your Firestore permissions.");
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function submitForReview() {
-    if (
-      !schoolId ||
-      !teacher ||
-      !currentAssignment ||
-      !activeTerm ||
-      markStatus !== "draft" ||
-      saving
-    ) {
-      return;
-    }
-
-    if (students.length === 0 || completedCount !== students.length) {
-      setError("Complete both sequence marks for every student before submitting.");
-      return;
-    }
-
-    if (!window.confirm("Submit these marks to the Class Master for review?")) {
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const marksRef = collection(
-        db,
-        "schools",
-        schoolId,
-        "academicYears",
-        selectedYear,
-        "terms",
-        selectedTerm,
-        "marks"
-      );
-
-      const snapshot = await getDocs(
-        query(marksRef, where("teacherUid", "==", teacher?.authUid))
-      );
-
-      const subjectMarks = snapshot.docs.filter((item) => {
-        const data = item.data();
         return (
-          data.classId === currentAssignment.classId &&
-          data.subjectId === currentAssignment.subjectId
+          entry?.mark !== null &&
+          entry?.mark !== undefined &&
+          Number.isFinite(entry.mark) &&
+          entry.mark >= 0 &&
+          entry.mark <= assessment.maxMark
         );
       });
+    });
 
-      const savedStudentIds = new Set(
-        subjectMarks.map((item) => item.data().studentId)
-      );
-
-      const allStudentsSaved = students.every((student) =>
-        savedStudentIds.has(student.id)
-      );
-
-      const allSavedMarksComplete = subjectMarks.every((item) => {
-        const data = item.data();
-        return data.sequence1 !== null &&
-          data.sequence1 !== undefined &&
-          data.sequence2 !== null &&
-          data.sequence2 !== undefined;
-      });
-
-      if (!allStudentsSaved || !allSavedMarksComplete) {
-        setError("Save all completed marks first, then submit for review.");
-        return;
-      }
-
-      const batch = writeBatch(db);
-
-      subjectMarks.forEach((item) => {
-        batch.update(item.ref, {
-          status: "submitted",
-          submittedAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
-      });
-
-      await batch.commit();
-
-      setMarkStatus("submitted");
-      setMessage("Marks submitted successfully to the Class Master for review.");
-    } catch (err) {
-      console.error(err);
-      setError("Unable to submit marks. Check your Firestore permissions.");
-    } finally {
-      setSaving(false);
+    if (
+      incompleteStudents.length > 0 &&
+      !window.confirm(
+        `${incompleteStudents.length} student(s) have incomplete marks. Continue submission anyway?`
+      )
+    ) {
+      return;
     }
-  }
 
-  const completedCount = students.filter((student) => {
-    const entry = marks[student.id];
-    return entry?.first !== "" && entry?.first !== undefined &&
-      entry?.second !== "" && entry?.second !== undefined;
-  }).length;
+    const batch = writeBatch(db);
+
+    subjectMarks.forEach((item) => {
+      batch.update(item.ref, {
+        status: "submitted",
+        submittedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+
+    setMarkStatus("submitted");
+    setMessage("Marks submitted successfully to the Class Master for review.");
+  } catch (err) {
+    console.error(err);
+    setError("Unable to submit marks. Check your Firestore permissions.");
+  } finally {
+    setSaving(false);
+  }
+}
+
+const completedCount = students.filter((student) => {
+  const entry = marks[student.id] ?? {};
+
+  return (
+    assessments.length > 0 &&
+    assessments.every(
+      (assessment) =>
+        entry[assessment.id] !== undefined &&
+        entry[assessment.id] !== ""
+    )
+  );
+}).length;
 
   if (loading) {
     return <p className="p-8 text-center text-slate-500">Loading teacher workspace...</p>;
@@ -733,7 +915,7 @@ teacherName: teacher.name,
         </h2>
         <p className="mt-2 text-sm text-slate-500">
           {teacher ? `Welcome, ${teacher.name}.` : "Record and manage your students' sequence marks."}
-          {" "}Each sequence mark is out of 40.
+         {" "}Enter marks according to the assessments configured for this class and subject.
         </p>
 
         {error && (
@@ -863,108 +1045,96 @@ teacherName: teacher.name,
                   <>
                     <div className="hidden overflow-x-auto md:block">
                       <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                          <tr>
-                            <th className="px-5 py-4">Student</th>
-                            <th className="px-5 py-4">Sequence 1 /40</th>
-                            <th className="px-5 py-4">Sequence 2 /40</th>
-                            <th className="px-5 py-4">Average /40</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {students.map((student) => (
-                            <tr key={student.id}>
-                              <td className="px-5 py-4">
-                                <p className="font-semibold">{student.fullName}</p>
-                                <p className="text-xs text-slate-400">
-                                  {student.admissionNumber || student.id}
-                                </p>
-                              </td>
-                              <td className="px-5 py-4">
-                                <input
-  type="number"
-  disabled={markStatus !== "draft"}
-  min="0"
-                                  max="40"
-                                  step="0.01"
-                                  value={marks[student.id]?.first ?? ""}
-                                  onChange={(e) => updateMark(student.id, "first", e.target.value)}
-                                  className="w-24 rounded-lg border p-2 outline-none focus:border-blue-600"
-                                  placeholder="0–40"
-                                />
-                              </td>
-                              <td className="px-5 py-4">
-                                <input
-  type="number"
-  disabled={markStatus !== "draft"}
-  min="0"
-                                  max="40"
-                                  step="0.01"
-                                  value={marks[student.id]?.second ?? ""}
-                                  onChange={(e) => updateMark(student.id, "second", e.target.value)}
-                                  className="w-24 rounded-lg border p-2 outline-none focus:border-blue-600"
-                                  placeholder="0–40"
-                                />
-                              </td>
-                              <td className="px-5 py-4 font-bold">
-                                {average(student.id)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
+                       <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+  <tr>
+    <th className="px-5 py-4">Student</th>
+
+    {assessments.map((assessment) => (
+      <th key={assessment.id} className="px-5 py-4">
+        {assessment.name} / {assessment.maxMark}
+      </th>
+    ))}
+
+    <th className="px-5 py-4">Total</th>
+  </tr>
+</thead>
+                  <tbody className="divide-y">
+  {students.map((student) => (
+    <tr key={student.id}>
+      <td className="px-5 py-4">
+        <p className="font-semibold">{student.fullName}</p>
+        <p className="text-xs text-slate-400">
+          {student.admissionNumber || student.id}
+        </p>
+      </td>
+
+      {assessments.map((assessment) => (
+        <td key={assessment.id} className="px-5 py-4">
+          <input
+            type="number"
+            disabled={markStatus !== "draft"}
+            min="0"
+            max={assessment.maxMark}
+            step="0.01"
+            value={marks[student.id]?.[assessment.id] ?? ""}
+            onChange={(e) =>
+              updateMark(student.id, assessment.id, e.target.value)
+            }
+            className="w-24 rounded-lg border p-2 outline-none focus:border-blue-600"
+            placeholder={`0–${assessment.maxMark}`}
+          />
+        </td>
+      ))}
+
+      <td className="px-5 py-4 font-bold">
+        {average(student.id)}
+      </td>
+    </tr>
+  ))}
+</tbody>
                       </table>
                     </div>
 
-                    <div className="space-y-4 p-4 md:hidden">
-                      {students.map((student) => (
-                        <div key={student.id} className="rounded-xl border p-4">
-                          <p className="font-semibold">{student.fullName}</p>
-                          <p className="mb-4 text-xs text-slate-400">
-                            {student.admissionNumber || student.id}
-                          </p>
+                   <div className="space-y-4 p-4 md:hidden">
+  {students.map((student) => (
+    <div key={student.id} className="rounded-xl border p-4">
+      <p className="font-semibold">{student.fullName}</p>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="mb-1 block text-xs text-slate-500">
-                                Sequence 1 /40
-                              </label>
-                             <input
-  type="number"
-  disabled={markStatus !== "draft"}
-  min="0"
-                                max="40"
-                                step="0.01"
-                                value={marks[student.id]?.first ?? ""}
-                                onChange={(e) => updateMark(student.id, "first", e.target.value)}
-                                className="w-full rounded-lg border p-3"
-                                placeholder="0–40"
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs text-slate-500">
-                                Sequence 2 /40
-                              </label>
-                             <input
-  type="number"
-  disabled={markStatus !== "draft"}
-  min="0"
-                                max="40"
-                                step="0.01"
-                                value={marks[student.id]?.second ?? ""}
-                                onChange={(e) => updateMark(student.id, "second", e.target.value)}
-                                className="w-full rounded-lg border p-3"
-                                placeholder="0–40"
-                              />
-                            </div>
-                          </div>
+      <p className="mb-4 text-xs text-slate-400">
+        {student.admissionNumber || student.id}
+      </p>
 
-                          <div className="mt-3 flex justify-between border-t pt-3 text-sm">
-                            <span className="text-slate-500">Average</span>
-                            <strong>{average(student.id)} / 40</strong>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+      <div className="grid grid-cols-2 gap-3">
+        {assessments.map((assessment) => (
+          <div key={assessment.id}>
+            <label className="mb-1 block text-xs text-slate-500">
+              {assessment.name} / {assessment.maxMark}
+            </label>
+
+            <input
+              type="number"
+              disabled={markStatus !== "draft"}
+              min="0"
+              max={assessment.maxMark}
+              step="0.01"
+              value={marks[student.id]?.[assessment.id] ?? ""}
+              onChange={(e) =>
+                updateMark(student.id, assessment.id, e.target.value)
+              }
+              className="w-full rounded-lg border p-3"
+              placeholder={`0–${assessment.maxMark}`}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex justify-between border-t pt-3 text-sm">
+        <span className="text-slate-500">Total</span>
+        <strong>{average(student.id)}</strong>
+      </div>
+    </div>
+  ))}
+</div>
 
 {showPreview && (
   <div className="m-5 overflow-auto rounded-xl border bg-white p-5 max-h-[650px]">
@@ -987,33 +1157,39 @@ teacherName: teacher.name,
     </div>
 
    <table className="min-w-[850px] w-full border-collapse text-left text-sm">
-      <thead>
-        <tr className="bg-slate-100">
-          <th className="border p-2">No.</th>
-          <th className="border p-2">Admission No.</th>
-          <th className="border p-2">Student Name</th>
-          <th className="border p-2">Sequence 1 /40</th>
-          <th className="border p-2">Sequence 2 /40</th>
-          <th className="border p-2">Average /40</th>
-        </tr>
-      </thead>
+     <thead>
+  <tr className="bg-slate-100">
+    <th className="border p-2">No.</th>
+    <th className="border p-2">Admission No.</th>
+    <th className="border p-2">Student Name</th>
 
-      <tbody>
-        {students.map((student, index) => (
-          <tr key={student.id}>
-            <td className="border p-2">{index + 1}</td>
-            <td className="border p-2">{student.admissionNumber}</td>
-            <td className="border p-2">{student.fullName}</td>
-            <td className="border p-2">
-              {marks[student.id]?.first || "—"}
-            </td>
-            <td className="border p-2">
-              {marks[student.id]?.second || "—"}
-            </td>
-            <td className="border p-2">{average(student.id)}</td>
-          </tr>
-        ))}
-      </tbody>
+    {assessments.map((assessment) => (
+      <th key={assessment.id} className="border p-2">
+        {assessment.name} / {assessment.maxMark}
+      </th>
+    ))}
+
+    <th className="border p-2">Total</th>
+  </tr>
+</thead>
+
+     <tbody>
+  {students.map((student, index) => (
+    <tr key={student.id}>
+      <td className="border p-2">{index + 1}</td>
+      <td className="border p-2">{student.admissionNumber}</td>
+      <td className="border p-2">{student.fullName}</td>
+
+      {assessments.map((assessment) => (
+        <td key={assessment.id} className="border p-2">
+          {marks[student.id]?.[assessment.id] || "—"}
+        </td>
+      ))}
+
+      <td className="border p-2">{average(student.id)}</td>
+    </tr>
+  ))}
+</tbody>
     </table>
 
     <p className="mt-4 text-sm font-semibold">
@@ -1064,7 +1240,7 @@ teacherName: teacher.name,
         studentsLoading ||
         marksLoading ||
         markStatus !== "draft" ||
-        completedCount !== students.length ||
+       
         students.length === 0
       }
       className="rounded-xl bg-green-700 px-6 py-3 font-semibold text-white hover:bg-green-800 disabled:opacity-50"

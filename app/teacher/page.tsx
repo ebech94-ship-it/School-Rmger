@@ -260,31 +260,33 @@ useEffect(() => {
         activeYearId,
       ] as const;
 
-      const [enrollmentSnap, studentSnap, marksSnap] =
-        await Promise.all([
-          getDocs(
-            query(
-              collection(db, ...basePath, "enrollments"),
-              where("status", "==", "active")
-            )
-          ),
-          getDocs(
-            collection(db, "schools", schoolId, "students")
-          ),
-          getDocs(
-            query(
-              collection(
-                db,
-                ...basePath,
-                "terms",
-                activeTermId,
-                "marks"
-              ),
-              where("teacherUid", "==", user.uid)
-            )
-          ),
-        ]);
-
+      const [enrollmentSnap, studentSnap, marksSnap, classSubjectsSnap] =
+  await Promise.all([
+    getDocs(
+      query(
+        collection(db, ...basePath, "enrollments"),
+        where("status", "==", "active")
+      )
+    ),
+    getDocs(
+      collection(db, "schools", schoolId, "students")
+    ),
+    getDocs(
+      query(
+        collection(
+          db,
+          ...basePath,
+          "terms",
+          activeTermId,
+          "marks"
+        ),
+        where("teacherUid", "==", user.uid)
+      )
+    ),
+    getDocs(
+      collection(db, "schools", schoolId, "classSubjects")
+    ),
+  ]);
       if (cancelled) return;
 
       const activeStudentIds = new Set(
@@ -321,15 +323,52 @@ useEffect(() => {
           ])
         );
 
-        const completed = enrolledIds.filter((studentId) => {
-          const mark = marksByStudent.get(studentId);
+      const classSubject = classSubjectsSnap.docs.find((item) => {
+  const data = item.data();
 
-          return (
-            typeof mark?.sequence1 === "number" &&
-            typeof mark?.sequence2 === "number"
-          );
-        }).length;
+  return (
+    data.classId === assignment.classId &&
+    data.subjectId === assignment.subjectId &&
+    data.status !== "inactive"
+  );
+});
 
+const configuredAssessments = Array.isArray(
+  classSubject?.data().assessments
+)
+  ? classSubject.data().assessments
+  : [];
+
+const completed = enrolledIds.filter((studentId) => {
+  const mark = marksByStudent.get(studentId);
+
+  if (
+    !mark ||
+    configuredAssessments.length === 0 ||
+    !Array.isArray(mark.assessmentMarks)
+  ) {
+    return false;
+  }
+
+  return configuredAssessments.every((assessment: {
+    id: string;
+    maxMark: number;
+  }) => {
+    const entry = mark.assessmentMarks.find(
+      (item: { assessmentId: string }) =>
+        item.assessmentId === assessment.id
+    );
+
+    return (
+      entry?.mark !== null &&
+      entry?.mark !== undefined &&
+      typeof entry.mark === "number" &&
+      Number.isFinite(entry.mark) &&
+      entry.mark >= 0 &&
+      entry.mark <= assessment.maxMark
+    );
+  });
+}).length;
         const returned = classMarks.some(
           (mark) =>
             mark.status === "draft" && Boolean(mark.returnedAt)

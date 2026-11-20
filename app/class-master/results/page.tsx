@@ -16,6 +16,11 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import {
+  calculateSubjectResult,
+  type AssessmentDefinition,
+  type AssessmentMark,
+} from "@/lib/results-calculation";
 
 type Row = {
   id: string;
@@ -39,6 +44,7 @@ type SubjectItem = {
   id: string;
   name: string;
   coefficient: number | null;
+  assessments: AssessmentDefinition[];
 };
 
 type StudentResult = {
@@ -62,24 +68,6 @@ function numberValue(value: unknown): number | null {
     : null;
 }
 
-function getCoefficient(
-  subject: Row,
-  classLevel: string
-): number | null {
-  const coefficients = subject.coefficientsByForm;
-
-  if (coefficients && typeof coefficients === "object") {
-    const formKey = classLevel.replace(/\s+/g, "");
-    const value = numberValue(
-      (coefficients as Record<string, unknown>)[formKey]
-    );
-
-    if (value !== null && value > 0) return value;
-  }
-
-  const fallback = numberValue(subject.coefficient);
-  return fallback !== null && fallback > 0 ? fallback : null;
-}
 
 export default function ClassResultsPage() {
   const router = useRouter();
@@ -279,37 +267,43 @@ const [notice, setNotice] = useState("");
           academicYearId,
         ] as const;
 
-        const [assignmentSnap, subjectSnap, enrollmentSnap, studentSnap, marksSnap] =
-          await Promise.all([
-            getDocs(
-              collection(db, "schools", schoolId, "teacherAssignments")
-            ),
-            getDocs(
-              collection(db, "schools", schoolId, "subjects")
-            ),
-            getDocs(
-              collection(
-                db,
-                ...basePath,
-                "enrollments"
-              )
-            ),
-            getDocs(
-              collection(db, "schools", schoolId, "students")
-            ),
-           getDocs(
-  query(
-    collection(
-      db,
-      ...basePath,
-      "terms",
-      selectedTermId,
-      "marks"
-    ),
-    where("classId", "==", selectedClassId)
-  )
-),
-          ]);
+        const [
+  assignmentSnap,
+  subjectSnap,
+  classSubjectSnap,
+  enrollmentSnap,
+  studentSnap,
+  marksSnap,
+] = await Promise.all([
+  getDocs(
+    collection(db, "schools", schoolId, "teacherAssignments")
+  ),
+  getDocs(
+    collection(db, "schools", schoolId, "subjects")
+  ),
+  getDocs(
+    collection(db, "schools", schoolId, "classSubjects")
+  ),
+  getDocs(
+    collection(db, ...basePath, "enrollments")
+  ),
+  getDocs(
+    collection(db, "schools", schoolId, "students")
+  ),
+  getDocs(
+    query(
+      collection(
+        db,
+        ...basePath,
+        "terms",
+        selectedTermId,
+        "marks"
+      ),
+      where("classId", "==", selectedClassId)
+    )
+  ),
+]);
+  
 
         if (cancelled) return;
 
@@ -331,38 +325,64 @@ const [notice, setNotice] = useState("");
           });
         });
 
-        const subjectMapById = new Map<string, SubjectItem>();
+        const classSubjects = new Map<string, Row>();
 
-        assignments.forEach((assignment) => {
-          const subjectId = textValue(assignment.subjectId);
-          const subject = subjectMap.get(subjectId);
+classSubjectSnap.docs.forEach((item) => {
+  const data = item.data();
 
-          if (!subject || subject.status !== "active") return;
+  if (data.classId === selectedClassId) {
+    classSubjects.set(textValue(data.subjectId), {
+      id: item.id,
+      ...data,
+    });
+  }
+});
 
-          const coefficient = getCoefficient(
-            subject,
-            selectedClass.level
-          );
+const subjectMapById = new Map<string, SubjectItem>();
 
-          subjectMapById.set(subjectId, {
-            id: subjectId,
-            name: textValue(subject.name),
-            coefficient,
-          });
-        });
+assignments.forEach((assignment) => {
+  const subjectId = textValue(assignment.subjectId);
+  const subject = subjectMap.get(subjectId);
+  const classSubject = classSubjects.get(subjectId);
 
-        const loadedSubjects = Array.from(subjectMapById.values())
-          .sort((a, b) => a.name.localeCompare(b.name));
+  if (
+    !subject ||
+    subject.status !== "active" ||
+    !classSubject
+  ) {
+    return;
+  }
 
-        const studentMap = new Map<string, Row>();
+  const coefficient = numberValue(classSubject.coefficient);
 
-        studentSnap.docs.forEach((item) => {
-          studentMap.set(item.id, {
-            id: item.id,
-            ...item.data(),
-          });
-        });
+  const assessments = Array.isArray(classSubject.assessments)
+    ? (classSubject.assessments as AssessmentDefinition[])
+        .slice()
+        .sort((a, b) => a.order - b.order)
+    : [];
 
+  subjectMapById.set(subjectId, {
+    id: subjectId,
+    name: textValue(subject.name),
+    coefficient:
+      coefficient !== null && coefficient > 0
+        ? coefficient
+        : null,
+    assessments,
+  });
+});
+
+const loadedSubjects = Array.from(subjectMapById.values())
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+const studentMap = new Map<string, Row>();
+
+studentSnap.docs.forEach((item) => {
+  studentMap.set(item.id, {
+    id: item.id,
+    ...item.data(),
+  });
+});
        const enrolledStudents: Row[] = enrollmentSnap.docs
   .map((item): Row => ({
     id: item.id,
@@ -410,22 +430,29 @@ const [notice, setNotice] = useState("");
             const studentId = textValue(enrollment.studentId);
             const student = studentMap.get(studentId);
 
-            const averages = loadedSubjects.map((subject) => {
-              const mark = marksByStudentSubject.get(
-                `${studentId}__${subject.id}`
-              );
+           const averages = loadedSubjects.map((subject) => {
+  const mark = marksByStudentSubject.get(
+    `${studentId}__${subject.id}`
+  );
 
-              if (!mark) return null;
+  if (!mark || subject.assessments.length === 0) {
+    return null;
+  }
 
-              const sequence1 = numberValue(mark.sequence1);
-              const sequence2 = numberValue(mark.sequence2);
+  const assessmentMarks: AssessmentMark[] =
+    Array.isArray(mark.assessmentMarks)
+      ? (mark.assessmentMarks as AssessmentMark[])
+      : [];
 
-              if (sequence1 === null || sequence2 === null) {
-                return null;
-              }
+  const result = calculateSubjectResult(
+    assessmentMarks,
+    subject.assessments
+  );
 
-              return (sequence1 + sequence2) / 2;
-            });
+  return result.complete
+    ? result.percentage
+    : null;
+});
 
             const complete =
               loadedSubjects.length > 0 &&
@@ -789,7 +816,7 @@ async function updateSubmittedMarks(
                   <p className="mt-1 text-3xl font-bold">
                     {classAverage === null
                       ? "—"
-                      : `${classAverage.toFixed(2)}/40`}
+                      : `${classAverage.toFixed(2)}%`}
                   </p>
                 </div>
 
@@ -897,7 +924,7 @@ async function updateSubmittedMarks(
                             </th>
                           ))}
                           <th className="px-4 py-4">Total</th>
-                          <th className="px-4 py-4">Average /40</th>
+                         <th className="px-4 py-4">Average %</th>
                         </tr>
                       </thead>
 
