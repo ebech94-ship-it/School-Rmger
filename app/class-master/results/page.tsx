@@ -10,6 +10,8 @@ import {
   doc,
   getDoc,
   getDocs,
+  query,
+  where,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
@@ -96,7 +98,15 @@ export default function ClassResultsPage() {
   const [marksLoading, setMarksLoading] = useState(false);
   const [markStatuses, setMarkStatuses] = useState<string[]>([]);
 
-const [reviewSaving, setReviewSaving] = useState(false);
+
+const [reviewAction, setReviewAction] = useState<
+  "reviewed" | "draft" | null
+>(null);
+
+const [submittedMarksCount, setSubmittedMarksCount] = useState(0);
+const [refreshKey, setRefreshKey] = useState(0);
+const [notice, setNotice] = useState("");
+
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -287,15 +297,18 @@ const [reviewSaving, setReviewSaving] = useState(false);
             getDocs(
               collection(db, "schools", schoolId, "students")
             ),
-            getDocs(
-              collection(
-                db,
-                ...basePath,
-                "terms",
-                selectedTermId,
-                "marks"
-              )
-            ),
+           getDocs(
+  query(
+    collection(
+      db,
+      ...basePath,
+      "terms",
+      selectedTermId,
+      "marks"
+    ),
+    where("classId", "==", selectedClassId)
+  )
+),
           ]);
 
         if (cancelled) return;
@@ -476,6 +489,11 @@ const [reviewSaving, setReviewSaving] = useState(false);
         setSubjects(loadedSubjects);
         setStudents(results);
         setMarkStatuses(statuses);
+        setSubmittedMarksCount(
+  marksSnap.docs.filter(
+    (item) => item.data().status === "submitted"
+  ).length
+);
       } catch (err) {
         console.error("Class results loading error:", err);
         if (!cancelled) {
@@ -499,6 +517,7 @@ const [reviewSaving, setReviewSaving] = useState(false);
     selectedClassId,
     selectedTermId,
     classes,
+     refreshKey,
   ]);
 
  const rankedStudents = useMemo(() => {
@@ -537,27 +556,31 @@ const [reviewSaving, setReviewSaving] = useState(false);
     (item) => item.id === selectedTermId
   );
 
-  const submittedCount = students.filter((student) =>
-    student.statuses.includes("submitted")
-  ).length;
-async function updateSubmittedMarks(action: "reviewed" | "draft") {
+const submittedCount = submittedMarksCount;
+
+async function updateSubmittedMarks(
+  action: "reviewed" | "draft"
+) {
   if (
     !schoolId ||
     !academicYearId ||
     !selectedTermId ||
     !selectedClassId ||
-    reviewSaving
+    reviewAction
   ) return;
 
   const actionLabel =
     action === "reviewed" ? "approve" : "return";
 
-  if (!window.confirm(
-    `Are you sure you want to ${actionLabel} all submitted marks for ${selectedClass?.name}?`
-  )) return;
+  if (
+    !window.confirm(
+      `Are you sure you want to ${actionLabel} all submitted marks for ${selectedClass?.name}?`
+    )
+  ) return;
 
-  setReviewSaving(true);
+  setReviewAction(action);
   setError("");
+  setNotice("");
 
   try {
     const marksRef = collection(
@@ -571,25 +594,23 @@ async function updateSubmittedMarks(action: "reviewed" | "draft") {
       "marks"
     );
 
-    const snapshot = await getDocs(marksRef);
+    const snapshot = await getDocs(
+      query(
+        marksRef,
+        where("classId", "==", selectedClassId),
+        where("status", "==", "submitted")
+      )
+    );
 
-    const submittedDocs = snapshot.docs.filter((item) => {
-      const data = item.data();
-      return (
-        data.classId === selectedClassId &&
-        data.status === "submitted"
-      );
-    });
-
-    if (submittedDocs.length === 0) {
-      setError("There are no submitted marks to process.");
+    if (snapshot.empty) {
+      setNotice("There are no submitted marks awaiting review.");
       return;
     }
 
-    for (let i = 0; i < submittedDocs.length; i += 450) {
+    for (let i = 0; i < snapshot.docs.length; i += 450) {
       const batch = writeBatch(db);
 
-      submittedDocs.slice(i, i + 450).forEach((item) => {
+      snapshot.docs.slice(i, i + 450).forEach((item) => {
         batch.update(item.ref, {
           status: action,
           ...(action === "reviewed"
@@ -608,12 +629,22 @@ async function updateSubmittedMarks(action: "reviewed" | "draft") {
       await batch.commit();
     }
 
-    setError("");
+    setNotice(
+      action === "reviewed"
+        ? `${snapshot.size} submitted mark records successfully approved.`
+        : `${snapshot.size} mark records returned for correction.`
+    );
+
+    setRefreshKey((previous) => previous + 1);
+
   } catch (err) {
     console.error("Class Master review error:", err);
-    setError("Unable to update marks. Check your Firestore permissions.");
+
+    setError(
+      "Unable to update marks. Check your Firestore permissions."
+    );
   } finally {
-    setReviewSaving(false);
+    setReviewAction(null);
   }
 }
 
@@ -663,7 +694,11 @@ async function updateSubmittedMarks(action: "reviewed" | "draft") {
             {error}
           </div>
         )}
-
+{notice && (
+  <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+    {notice}
+  </div>
+)}
         {classes.length === 0 ? (
           <div className="mt-7 rounded-xl border bg-white p-6 text-sm text-slate-600">
             No class has been assigned to you as Class Master for this account.
@@ -816,23 +851,27 @@ async function updateSubmittedMarks(action: "reviewed" | "draft") {
   </div>
 
   <div className="flex flex-wrap gap-2">
-    <button
-      type="button"
-      onClick={() => updateSubmittedMarks("draft")}
-      disabled={reviewSaving || submittedCount === 0}
-      className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 disabled:opacity-50"
-    >
-      Return for correction
-    </button>
+   <button
+  type="button"
+  onClick={() => updateSubmittedMarks("draft")}
+  disabled={!!reviewAction || submittedCount === 0}
+  className="rounded-lg border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+>
+  {reviewAction === "draft"
+    ? "Returning..."
+    : "Return for correction"}
+</button>
 
-    <button
-      type="button"
-      onClick={() => updateSubmittedMarks("reviewed")}
-      disabled={reviewSaving || submittedCount === 0}
-      className="rounded-lg bg-blue-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-    >
-      {reviewSaving ? "Processing..." : "Approve submitted marks"}
-    </button>
+<button
+  type="button"
+  onClick={() => updateSubmittedMarks("reviewed")}
+  disabled={!!reviewAction || submittedCount === 0}
+  className="rounded-lg bg-blue-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
+>
+  {reviewAction === "reviewed"
+    ? "Approving..."
+    : "Accept submitted marks"}
+</button>
   </div>
 </div>
 

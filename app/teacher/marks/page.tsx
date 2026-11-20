@@ -68,6 +68,8 @@ export default function MarksEntryPage() {
   const [students, setStudents] = useState<Student[]>([]);
  const [marks, setMarks] = useState<Record<string, MarkEntry>>({});
 const [markStatus, setMarkStatus] = useState("draft");
+const [wasReturned, setWasReturned] = useState(false);
+const [showPreview, setShowPreview] = useState(false);
 const [loadedMarksKey, setLoadedMarksKey] = useState("");
 
   const [selectedYear, setSelectedYear] = useState("");
@@ -79,6 +81,7 @@ const [loadedMarksKey, setLoadedMarksKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
 
   // Verify teacher and load assignments and academic years.
   useEffect(() => {
@@ -257,6 +260,32 @@ const currentClassId = currentAssignment?.classId ?? "";
 const currentSubjectId = currentAssignment?.subjectId ?? "";
 const currentTeacherUid = teacher?.authUid ?? "";
 
+
+const statusMessage =
+  markStatus === "draft"
+    ? {
+        title: "Draft – Not yet submitted",
+        description: "Save your marks, preview them and submit when everything is correct.",
+        style: "bg-amber-50 border-amber-200 text-amber-900",
+      }
+    : markStatus === "submitted"
+    ? {
+        title: "Submitted – Awaiting Class Master",
+        description: "Your marks have been submitted. Editing is locked while the Class Master reviews them.",
+        style: "bg-blue-50 border-blue-200 text-blue-900",
+      }
+    : markStatus === "reviewed"
+    ? {
+        title: "Reviewed – Awaiting Finalization",
+        description: "The Class Master has reviewed these marks. Contact the administrator if corrections are needed.",
+        style: "bg-purple-50 border-purple-200 text-purple-900",
+      }
+    : {
+        title: "Finalized – Marks Locked",
+        description: "These marks have been finalized and can no longer be edited.",
+        style: "bg-green-50 border-green-200 text-green-900",
+      };
+
 const marksKey = [
   schoolId,
   selectedYear,
@@ -385,8 +414,9 @@ useEffect(() => {
    return onSnapshot(
  query(marksRef, where("teacherUid", "==", currentTeacherUid)),
   (snapshot) => {
-        const records: Record<string, MarkEntry> = {};
+       const records: Record<string, MarkEntry> = {};
 const statuses: string[] = [];
+let hasReturnRecord = false;
 
         snapshot.docs.forEach((item) => {
           const data = item.data();
@@ -398,6 +428,9 @@ data.subjectId !== currentSubjectId
             return;
           }
 statuses.push(data.status || "draft");
+if (data.returnedAt) {
+  hasReturnRecord = true;
+}
           records[data.studentId] = {
             first: data.sequence1 === null || data.sequence1 === undefined
               ? ""
@@ -420,6 +453,9 @@ const highestStatus = statuses.reduce(
 );
 
 setMarkStatus(highestStatus);
+setWasReturned(
+  highestStatus === "draft" && hasReturnRecord
+);
 setLoadedMarksKey(marksKey);
       },
       (err) => {
@@ -711,6 +747,15 @@ teacherName: teacher.name,
             {message}
           </p>
         )}
+{wasReturned && markStatus === "draft" && (
+  <div className="mt-5 rounded-xl border border-orange-300 bg-orange-50 p-4 text-orange-900">
+    <p className="font-bold">Marks Returned for Correction</p>
+    <p className="mt-1 text-sm">
+      Your Class Master has returned these marks. Please correct them,
+      save your changes and submit again.
+    </p>
+  </div>
+)}
 
         {!error && assignments.length === 0 && (
           <div className="mt-6 rounded-xl border bg-white p-6">
@@ -796,11 +841,12 @@ teacherName: teacher.name,
                       {activeTerm.name} · {students.length} enrolled students
                     </p>
                   </div>
-
-                 <div className="text-sm text-slate-600">
-  <p>Completed: <strong>{completedCount}/{students.length}</strong></p>
-  <p className="mt-1 font-semibold capitalize">
-    Status: {markStatus}
+<div className="text-sm text-slate-600">
+  <p>
+    Completed: <strong>{completedCount}/{students.length}</strong>
+  </p>
+  <p className="mt-1 font-semibold">
+    {wasReturned ? "Returned for Correction" : statusMessage.title}
   </p>
 </div>
                 </div>
@@ -920,8 +966,74 @@ teacherName: teacher.name,
                       ))}
                     </div>
 
+{showPreview && (
+  <div className="m-5 overflow-auto rounded-xl border bg-white p-5 max-h-[650px]">
+    <div className="mb-5 text-center">
+      <h2 className="text-xl font-bold text-blue-950">
+        GTHS KUMBO
+      </h2>
+      <h3 className="mt-2 font-semibold">
+        STUDENT MARKS PREVIEW
+      </h3>
+      <p className="mt-2 text-sm">
+        Academic Year: {academicYears.find((y) => y.id === selectedYear)?.name}
+      </p>
+      <p className="text-sm">
+        {activeTerm.name} | {currentAssignment.className} | {currentAssignment.subjectName}
+      </p>
+      <p className="text-sm">
+        Teacher: {teacher?.name}
+      </p>
+    </div>
+
+   <table className="min-w-[850px] w-full border-collapse text-left text-sm">
+      <thead>
+        <tr className="bg-slate-100">
+          <th className="border p-2">No.</th>
+          <th className="border p-2">Admission No.</th>
+          <th className="border p-2">Student Name</th>
+          <th className="border p-2">Sequence 1 /40</th>
+          <th className="border p-2">Sequence 2 /40</th>
+          <th className="border p-2">Average /40</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {students.map((student, index) => (
+          <tr key={student.id}>
+            <td className="border p-2">{index + 1}</td>
+            <td className="border p-2">{student.admissionNumber}</td>
+            <td className="border p-2">{student.fullName}</td>
+            <td className="border p-2">
+              {marks[student.id]?.first || "—"}
+            </td>
+            <td className="border p-2">
+              {marks[student.id]?.second || "—"}
+            </td>
+            <td className="border p-2">{average(student.id)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+
+    <p className="mt-4 text-sm font-semibold">
+      Completed: {completedCount}/{students.length}
+    </p>
+
+    <div className="mt-12 flex justify-between text-sm">
+      <p>Teacher&apos;s Signature: __________________</p>
+      <p>Date: __________________</p>
+    </div>
+  </div>
+)}
                    <div className="border-t bg-slate-50 p-5">
+<div className={`mb-4 rounded-xl border p-4 ${statusMessage.style}`}>
+  <p className="font-bold">{statusMessage.title}</p>
+  <p className="mt-1 text-sm">{statusMessage.description}</p>
+</div>
+
   <div className="flex flex-wrap gap-3">
+ 
     <button
       type="button"
       onClick={saveMarks}
@@ -936,6 +1048,14 @@ teacherName: teacher.name,
       {saving ? "Processing..." : "Save marks"}
     </button>
 
+ <button
+  type="button"
+  onClick={() => setShowPreview(!showPreview)}
+  className="rounded-xl border border-blue-900 px-6 py-3 font-semibold text-blue-900 hover:bg-blue-50"
+>
+  {showPreview ? "Hide Preview" : "Preview Marks"}
+</button>
+
     <button
       type="button"
       onClick={submitForReview}
@@ -949,7 +1069,13 @@ teacherName: teacher.name,
       }
       className="rounded-xl bg-green-700 px-6 py-3 font-semibold text-white hover:bg-green-800 disabled:opacity-50"
     >
-      Submit for Review
+    {markStatus === "submitted"
+  ? "Submitted ✓"
+  : markStatus === "reviewed"
+  ? "Reviewed ✓"
+  : markStatus === "finalized"
+  ? "Finalized ✓"
+  : "Submit for Review"}
     </button>
   </div>
 

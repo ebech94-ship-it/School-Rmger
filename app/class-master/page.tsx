@@ -90,22 +90,15 @@ export default function ClassMasterDashboard() {
           throw new Error("Your teacher account has been archived.");
         }
 
-        const teacherId = teacherDoc.id;
-
         const [classesSnapshot, yearsSnapshot] = await Promise.all([
           getDocs(collection(db, "schools", schoolId, "classes")),
           getDocs(collection(db, "schools", schoolId, "academicYears")),
         ]);
 
         const assignedClasses = classesSnapshot.docs
-          .filter(
-            (item) => item.data().classMasterTeacherId === teacherId
-          )
-          .map((item) => ({
-            id: item.id,
-            name: item.data().name || item.data().className || "Unnamed class",
-          }));
-
+  .filter(
+    (item) => item.data().classMasterUid === user.uid
+  );
         const activeYearDoc = yearsSnapshot.docs.find(
           (item) => item.data().isActive === true
         );
@@ -175,7 +168,7 @@ const filteredAssignments = activeAssignments.filter(
 
             return {
               id: schoolClass.id,
-              name: schoolClass.name,
+              name: schoolClass.data().name || "Unnamed class",
               studentCount,
               subjects: filteredAssignments.filter(
   (item) => item.classId === schoolClass.id

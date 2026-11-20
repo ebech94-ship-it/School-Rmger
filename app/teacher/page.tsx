@@ -17,22 +17,36 @@ import { auth, db } from "@/lib/firebase";
 
 type Assignment = {
   id: string;
+  subjectId: string;
   subjectName: string;
+  classId: string;
   className: string;
   academicYearId: string;
   academicYearName: string;
   status: string;
 };
 
+type AssignmentProgress = {
+  total: number;
+  completed: number;
+  returned: boolean;
+};
 export default function TeacherDashboard() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [teacherName, setTeacherName] = useState("Teacher");
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [activeTerm, setActiveTerm] = useState("");
+ const [assignments, setAssignments] = useState<Assignment[]>([]);
+const [activeTerm, setActiveTerm] = useState("");
+const [activeTermId, setActiveTermId] = useState("");
+const [assignmentProgress, setAssignmentProgress] =
+  useState<Record<string, AssignmentProgress>>({});
+  const [isClassMaster, setIsClassMaster] = useState(false);
   const [academicYear, setAcademicYear] = useState("");
   const [error, setError] = useState("");
+
+const [schoolId, setSchoolId] = useState("");
+const [activeYearId, setActiveYearId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -61,11 +75,12 @@ export default function TeacherDashboard() {
           throw new Error("Your teacher account is not active.");
         }
 
-        const schoolId = userData.schoolId;
+     const currentSchoolId = userData.schoolId as string;
+setSchoolId(currentSchoolId);
 const academicYearsRef = collection(
   db,
   "schools",
-  schoolId,
+  currentSchoolId,
   "academicYears"
 );
 
@@ -79,7 +94,8 @@ if (!activeYearDoc) {
   throw new Error("Your school has not selected a current academic year.");
 }
 
-const activeYearId = activeYearDoc.id;
+const currentYearId = activeYearDoc.id;
+setActiveYearId(currentYearId);
 const activeYearName = activeYearDoc.data().name || "Current academic year";
 
 setAcademicYear(activeYearName);
@@ -87,7 +103,7 @@ setAcademicYear(activeYearName);
         const teachersRef = collection(
           db,
           "schools",
-          schoolId,
+         currentSchoolId,
           "teachers"
         );
 
@@ -108,10 +124,28 @@ setAcademicYear(activeYearName);
           throw new Error("Your teacher account has been archived.");
         }
        
+const classesRef = collection(
+  db,
+  "schools",
+  currentSchoolId,
+  "classes"
+);
+
+const classMasterQuery = query(
+  classesRef,
+  where("classMasterUid", "==", user.uid)
+);
+
+const classMasterSnap = await getDocs(classMasterQuery);
+
+if (!cancelled) {
+  setIsClassMaster(!classMasterSnap.empty);
+}
+
         const assignmentsRef = collection(
           db,
           "schools",
-          schoolId,
+          currentSchoolId,
           "teacherAssignments"
         );
 
@@ -127,14 +161,16 @@ setAcademicYear(activeYearName);
           assignmentsSnap.docs.map((item) => {
             const data = item.data();
 
-            return {
-              id: item.id,
-              subjectName: data.subjectName || "Unnamed subject",
-              className: data.className || "Unnamed class",
-              academicYearId: data.academicYearId || "",
-              academicYearName: data.academicYearName || "",
-              status: data.status || "active",
-            };
+          return {
+  id: item.id,
+  subjectId: data.subjectId || "",
+  subjectName: data.subjectName || "Unnamed subject",
+  classId: data.classId || "",
+  className: data.className || "Unnamed class",
+  academicYearId: data.academicYearId || "",
+  academicYearName: data.academicYearName || "",
+  status: data.status || "active",
+};
           });
 
         const uniqueAssignments = Array.from(
@@ -153,7 +189,7 @@ setAcademicYear(activeYearName);
         );
 
  const currentYearAssignments = uniqueAssignments.filter(
-  (item) => item.academicYearId === activeYearId
+ (item) => item.academicYearId === currentYearId
 );
 
 setAssignments(currentYearAssignments);
@@ -161,9 +197,9 @@ setAssignments(currentYearAssignments);
 const termsRef = collection(
   db,
   "schools",
-  schoolId,
+  currentSchoolId,
   "academicYears",
-  activeYearId,
+  currentYearId,
   "terms"
 );
 
@@ -175,6 +211,7 @@ const openTerm = termsSnap.docs.find(
 
 if (!cancelled) {
   setActiveTerm(openTerm?.data().name || "");
+  setActiveTermId(openTerm?.id || "");
 }
 
       } catch (err) {
@@ -198,6 +235,132 @@ if (!cancelled) {
     };
   }, [router]);
 
+useEffect(() => {
+  if (
+    !schoolId ||
+    !activeYearId ||
+    !activeTermId ||
+    assignments.length === 0
+  ) {
+   
+    return;
+  }
+
+  let cancelled = false;
+
+  async function loadAssignmentProgress() {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const basePath = [
+        "schools",
+        schoolId,
+        "academicYears",
+        activeYearId,
+      ] as const;
+
+      const [enrollmentSnap, studentSnap, marksSnap] =
+        await Promise.all([
+          getDocs(
+            query(
+              collection(db, ...basePath, "enrollments"),
+              where("status", "==", "active")
+            )
+          ),
+          getDocs(
+            collection(db, "schools", schoolId, "students")
+          ),
+          getDocs(
+            query(
+              collection(
+                db,
+                ...basePath,
+                "terms",
+                activeTermId,
+                "marks"
+              ),
+              where("teacherUid", "==", user.uid)
+            )
+          ),
+        ]);
+
+      if (cancelled) return;
+
+      const activeStudentIds = new Set(
+        studentSnap.docs
+          .filter((item) => item.data().status === "active")
+          .map((item) => item.id)
+      );
+
+      const progress: Record<string, AssignmentProgress> = {};
+
+      assignments.forEach((assignment) => {
+        const enrolledIds = enrollmentSnap.docs
+          .filter(
+            (item) =>
+              item.data().classId === assignment.classId &&
+              activeStudentIds.has(
+                String(item.data().studentId || "")
+              )
+          )
+          .map((item) => String(item.data().studentId || ""));
+
+        const classMarks = marksSnap.docs
+          .map((item) => item.data())
+          .filter(
+            (mark) =>
+              mark.classId === assignment.classId &&
+              mark.subjectId === assignment.subjectId
+          );
+
+        const marksByStudent = new Map(
+          classMarks.map((mark) => [
+            String(mark.studentId || ""),
+            mark,
+          ])
+        );
+
+        const completed = enrolledIds.filter((studentId) => {
+          const mark = marksByStudent.get(studentId);
+
+          return (
+            typeof mark?.sequence1 === "number" &&
+            typeof mark?.sequence2 === "number"
+          );
+        }).length;
+
+        const returned = classMarks.some(
+          (mark) =>
+            mark.status === "draft" && Boolean(mark.returnedAt)
+        );
+
+        progress[assignment.id] = {
+          total: enrolledIds.length,
+          completed,
+          returned,
+        };
+      });
+
+      if (!cancelled) {
+        setAssignmentProgress(progress);
+      }
+    } catch (err) {
+      console.error("Teacher assignment progress error:", err);
+    }
+  }
+
+  loadAssignmentProgress();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  schoolId,
+  activeYearId,
+  activeTermId,
+  assignments,
+]);
   async function handleSignOut() {
     await signOut(auth);
     router.replace("/login");
@@ -315,63 +478,146 @@ if (!cancelled) {
             </div>
           ) : (
             <div className="space-y-3">
-              {assignments.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex flex-col justify-between gap-4 rounded-xl border p-4 md:flex-row md:items-center"
-                >
-                  <div>
-                    <h4 className="font-semibold text-slate-900">
-                      {item.subjectName}
-                    </h4>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {item.className}
-                    </p>
-                  </div>
+            {assignments.map((item) => {
+  const progress = assignmentProgress[item.id] || {
+    total: 0,
+    completed: 0,
+    returned: false,
+  };
 
-                  <Link
-                    href="/teacher/marks"
-                    className="rounded-lg bg-blue-900 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-blue-800"
-                  >
-                    Enter marks
-                  </Link>
-                </div>
-              ))}
+  const percentage =
+    progress.total > 0
+      ? Math.round(
+          (progress.completed / progress.total) * 100
+        )
+      : 0;
+
+  const completed =
+    progress.total > 0 &&
+    progress.completed === progress.total;
+
+  const status = progress.returned
+    ? "Returned for correction"
+    : completed
+      ? "Completed"
+      : progress.completed > 0
+        ? "In progress"
+        : "Not started";
+
+  const color = progress.returned
+    ? "bg-red-500"
+    : completed
+      ? "bg-blue-600"
+      : progress.completed > 0
+        ? "bg-amber-500"
+        : "bg-slate-300";
+
+  const statusColor = progress.returned
+    ? "text-red-700"
+    : completed
+      ? "text-blue-700"
+      : progress.completed > 0
+        ? "text-amber-700"
+        : "text-slate-500";
+
+  return (
+    <div
+      key={item.id}
+      className="rounded-xl border p-4"
+    >
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+        <div className="flex-1">
+          <h4 className="font-semibold text-slate-900">
+            {item.subjectName}
+          </h4>
+
+          <p className="mt-1 text-sm text-slate-500">
+            {item.className}
+          </p>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <span className={`text-sm font-semibold ${statusColor}`}>
+              {status}
+            </span>
+
+            <span className="text-sm font-bold text-slate-700">
+              {progress.completed}/{progress.total}
+            </span>
+          </div>
+
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className={`h-full rounded-full ${color}`}
+              style={{ width: `${percentage}%` }}
+            />
+          </div>
+        </div>
+
+        <Link
+          href="/teacher/marks"
+          className="rounded-lg bg-blue-900 px-4 py-2 text-center text-sm font-semibold text-white hover:bg-blue-800"
+        >
+          Enter marks
+        </Link>
+      </div>
+    </div>
+  );
+})}
             </div>
           )}
         </section>
 
-        <section className="mt-8 grid gap-4 md:grid-cols-2">
-          <Link
-            href="/teacher/marks"
-            className="rounded-2xl bg-blue-950 p-6 text-white transition hover:bg-blue-900"
-          >
-            <p className="text-sm text-blue-200">
-              MARKS MANAGEMENT
-            </p>
-            <h3 className="mt-2 text-xl font-bold">
-              Enter students’ marks
-            </h3>
-            <p className="mt-2 text-sm text-blue-100">
-              Record and update sequence marks for your assigned subjects.
-            </p>
-            <p className="mt-5 text-sm font-semibold">
-              Open marks entry →
-            </p>
-          </Link>
+<section className="mt-8 grid gap-4 md:grid-cols-2">
+  <Link
+    href="/teacher/marks"
+    className="rounded-2xl bg-blue-950 p-6 text-white transition hover:bg-blue-900"
+  >
+    <p className="text-sm text-blue-200">
+      MARKS MANAGEMENT
+    </p>
+    <h3 className="mt-2 text-xl font-bold">
+      Enter students’ marks
+    </h3>
+    <p className="mt-2 text-sm text-blue-100">
+      Record and update sequence marks for your assigned subjects.
+    </p>
+    <p className="mt-5 text-sm font-semibold">
+      Open marks entry →
+    </p>
+  </Link>
 
-          <div className="rounded-2xl border bg-white p-6">
-            <p className="text-sm font-medium text-slate-500">
-              TEACHER SUPPORT
-            </p>
-            <h3 className="mt-2 text-xl font-bold">
-              Your responsibilities
-            </h3>
-            <p className="mt-2 text-sm text-slate-500">
-              Enter accurate marks, review your entries and submit them for school review.
-            </p>
-          </div>
-        </section>
+  {isClassMaster && (
+    <Link
+      href="/class-master"
+      className="rounded-2xl bg-emerald-800 p-6 text-white transition hover:bg-emerald-700"
+    >
+      <p className="text-sm text-emerald-200">
+        CLASS MASTER WORKSPACE
+      </p>
+      <h3 className="mt-2 text-xl font-bold">
+        Manage your assigned class
+      </h3>
+      <p className="mt-2 text-sm text-emerald-100">
+        Review marks, monitor class performance and manage class records.
+      </p>
+      <p className="mt-5 text-sm font-semibold">
+        Open Class Master workspace →
+      </p>
+    </Link>
+  )}
+
+  <div className="rounded-2xl border bg-white p-6">
+    <p className="text-sm font-medium text-slate-500">
+      TEACHER SUPPORT
+    </p>
+    <h3 className="mt-2 text-xl font-bold">
+      Your responsibilities
+    </h3>
+    <p className="mt-2 text-sm text-slate-500">
+      Enter accurate marks, review your entries and submit them for school review.
+    </p>
+  </div>
+</section>
 
         <p className="mt-8 text-center text-xs text-slate-400">
           ScholarFlow · School Results Management

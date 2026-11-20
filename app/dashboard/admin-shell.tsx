@@ -19,6 +19,7 @@ const navigation = [
   { name: "Marks & Results", icon: "✎", href: "/dashboard/results" },
   { name: "Class Council", icon: "☷", href: "/dashboard/class-council" },
   { name: "Reports", icon: "▥", href: "/dashboard/reports" },
+  { name: "Help & Support", icon: "ⓘ", href: "/dashboard/help" },
   { name: "Settings", icon: "⚙", href: "/dashboard/settings" },
 ];
 
@@ -237,15 +238,7 @@ export default function AdminShell({
           })}
         </nav>
 
-        <div className="mx-4 mb-4 rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-          <p className="text-sm font-semibold">Need assistance?</p>
-          <p className="mt-1 text-xs leading-5 text-slate-400">
-            Help and guidance for managing your school records.
-          </p>
-          <p className="mt-3 text-xs font-semibold text-blue-300">
-            Support centre coming soon
-          </p>
-        </div>
+        
 
         <div className="mx-4 mb-4 border-t border-white/10 pt-3">
           <button
