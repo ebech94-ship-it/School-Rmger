@@ -96,10 +96,15 @@ const remarkOptions = [
 ];
 
 const decisionOptions = [
+  "Passed",
+  "Failed",
   "Promoted",
-  "To Repeat",
   "Conditional Promotion",
-  "Pending",
+  "To Repeat",
+  "Continue to Next Term",
+  "Academic Support Required",
+  "Monitor Progress",
+  "Pending Council Decision",
 ];
 
 function numberOrNull(value: unknown): number | null {
@@ -139,6 +144,7 @@ export default function ClassCouncilPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const [schoolId, setSchoolId] = useState("");
   const [userId, setUserId] = useState("");
@@ -353,6 +359,7 @@ setClassSubjectConfigs(
         setDataLoading(true);
         setError("");
         setMessage("");
+        setHasUnsavedChanges(false);
 
         const [enrollmentSnap, marksSnap, councilSnap] = await Promise.all([
           getDocs(
@@ -511,7 +518,8 @@ setClassSubjectConfigs(
   }, [enrollments, students, selectedClass]);
 
   
-    const studentResults = useMemo(() => {
+ 
+const studentResults = useMemo(() => {
   return classStudents.map((student) => {
     let weightedTotal = 0;
     let coefficientTotal = 0;
@@ -570,10 +578,10 @@ setClassSubjectConfigs(
         return;
       }
 
+      // Finalization is separate from mark calculation.
       if (mark.status !== "finalized") {
         complete = false;
-        issues.push(`${subjectName}: not finalized`);
-        return;
+        issues.push(`${subjectName}: marks entered — awaiting finalization`);
       }
 
       const assessmentMarks: AssessmentMark[] = Array.isArray(
@@ -593,10 +601,7 @@ setClassSubjectConfigs(
         return;
       }
 
-      // Preserve the existing PE and Manual Labour average policy.
-      if (excludedFromAverage) {
-        return;
-      }
+      if (excludedFromAverage) return;
 
       const coefficient = numberOrNull(config.coefficient);
 
@@ -606,8 +611,8 @@ setClassSubjectConfigs(
         return;
       }
 
-    weightedTotal += (result.percentage / 5) * coefficient;
-coefficientTotal += coefficient;
+      weightedTotal += (result.percentage / 5) * coefficient;
+      coefficientTotal += coefficient;
     });
 
     if (classAssignments.length === 0) {
@@ -622,8 +627,9 @@ coefficientTotal += coefficient;
       }
     }
 
+    // Show a provisional average from available complete subjects.
     const average =
-      complete && coefficientTotal > 0
+      coefficientTotal > 0
         ? Number((weightedTotal / coefficientTotal).toFixed(2))
         : null;
 
@@ -642,6 +648,7 @@ coefficientTotal += coefficient;
   marks,
   selectedClass,
 ]);
+
 
   const ranking = useMemo(() => {
     return studentResults
@@ -704,16 +711,11 @@ coefficientTotal += coefficient;
     }));
 
     setMessage("");
+    setHasUnsavedChanges(true);
   }
 
   async function saveCouncil() {
-    if (!allResultsFinalized) {
-      setError(
-        "Council cannot be saved yet. Check the incomplete students and resolve their outstanding subject results."
-      );
-      return;
-    }
-
+   
     if (!currentClass || !currentYear || !currentTerm) {
       setError("Select an academic year, term and class.");
       return;
@@ -767,6 +769,7 @@ coefficientTotal += coefficient;
       );
 
       setMessage("Class Council decisions saved successfully.");
+   setHasUnsavedChanges(false);
     } catch (err) {
       setError(
         err instanceof Error
@@ -787,40 +790,19 @@ coefficientTotal += coefficient;
   }
 
   return (
-    <main className="min-h-screen space-y-6 bg-slate-50 p-4 md:p-8">
-      {/* Page heading and actions */}
-      <div className="flex flex-wrap items-center justify-between gap-4 print:hidden">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
-            Academic Administration
-          </p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900 md:text-3xl">
-            Class Council
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Review finalized results, record decisions and prepare council
-            records.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => window.print()}
-            disabled={studentResults.length === 0 || dataLoading}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Print Register
-          </button>
-
-          <button
-            onClick={saveCouncil}
-            disabled={saving || dataLoading || !allResultsFinalized}
-            className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save Council"}
-          </button>
-        </div>
-      </div>
+   <main className="min-h-screen space-y-6 bg-slate-50 p-4 pb-28 md:p-8 md:pb-28">
+      {/* Page heading */}
+<div className="print:hidden">
+  <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
+    Academic Administration
+  </p>
+  <h1 className="mt-1 text-2xl font-bold text-slate-900 md:text-3xl">
+    Class Council
+  </h1>
+  <p className="mt-1 text-sm text-slate-500">
+    Review finalized results, record decisions and prepare council records.
+  </p>
+</div>
 
       {/* Messages */}
       {error && (
@@ -994,17 +976,17 @@ coefficientTotal += coefficient;
               }`}
             >
               {allResultsFinalized
-                ? "Class results are ready for council"
-                : "Class council is not ready"}
+  ? "All subject results are finalized"
+  : "Some subject results still need attention"}
             </h2>
             <p
               className={`mt-1 text-sm ${
                 allResultsFinalized ? "text-green-800" : "text-amber-800"
               }`}
             >
-              {allResultsFinalized
-                ? "All enrolled students have complete finalized results. You can record and save council decisions."
-                : "Resolve the outstanding subject results before saving the council record."}
+             {allResultsFinalized
+  ? "All assigned subject results are complete. You can record and save council decisions."
+  : "Some subjects or marks are missing or not finalized. You can still record and save council decisions. Outstanding results remain clearly flagged."}
             </p>
           </div>
 
@@ -1015,7 +997,7 @@ coefficientTotal += coefficient;
                 : "bg-amber-100 text-amber-800"
             }`}
           >
-            {allResultsFinalized ? "READY" : "ACTION REQUIRED"}
+           {allResultsFinalized ? "ALL COMPLETE" : "INCOMPLETE — ACTIONS AVAILABLE"}
           </span>
         </div>
 
@@ -1098,6 +1080,11 @@ coefficientTotal += coefficient;
 
                     <td className="p-3 font-bold text-slate-900">
                       {display(student.average)}
+{!student.complete && student.average !== null && (
+  <p className="text-[10px] font-medium text-amber-700">
+    Provisional
+  </p>
+)}
                     </td>
 
                     <td className="p-3 font-semibold text-slate-700">
@@ -1114,7 +1101,7 @@ coefficientTotal += coefficient;
                             event.target.value
                           )
                         }
-                        disabled={!student.complete}
+                      
                         className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 print:hidden"
                       >
                         {remarkOptions.map((remark) => (
@@ -1138,7 +1125,7 @@ coefficientTotal += coefficient;
                             event.target.value
                           )
                         }
-                        disabled={!student.complete}
+                       
                         className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 print:hidden"
                       >
                         {decisionOptions.map((decision) => (
@@ -1205,10 +1192,18 @@ coefficientTotal += coefficient;
 
         <textarea
           value={generalRemark}
-          onChange={(event) => {
-            setGeneralRemark(event.target.value);
-            setMessage("");
-          }}
+         onChange={(event) => {
+  if (
+    hasUnsavedChanges &&
+    !window.confirm(
+      "You have unsaved council changes. Continue without saving?"
+    )
+  ) {
+    return;
+  }
+
+  setSelectedYear(event.target.value);
+}}
           rows={4}
           placeholder="Enter general observations, recommendations or council notes..."
           className="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 print:hidden"
@@ -1251,6 +1246,53 @@ coefficientTotal += coefficient;
             <p className="mt-12 border-t border-black pt-2">
               Signature and Stamp
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Fixed Council Action Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-4px_15px_rgba(0,0,0,0.08)] backdrop-blur print:hidden">
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-3">
+          <div>
+            <p
+              className={`text-xs font-bold ${
+                hasUnsavedChanges
+                  ? "text-amber-700"
+                  : message
+                    ? "text-green-700"
+                    : "text-slate-500"
+              }`}
+            >
+              {saving
+                ? "Saving council records..."
+                : hasUnsavedChanges
+                  ? "You have unsaved changes"
+                  : message
+                    ? "All changes saved"
+                    : "Council actions"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {currentClass?.level} {currentClass?.name} · {currentTerm?.name}
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.print()}
+              disabled={studentResults.length === 0 || dataLoading}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50 sm:px-4"
+            >
+              <span className="hidden sm:inline">Print Register</span>
+              <span className="sm:hidden">Print</span>
+            </button>
+
+            <button
+              onClick={saveCouncil}
+              disabled={saving || dataLoading || classStudents.length === 0}
+              className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6"
+            >
+              {saving ? "Saving..." : "Save Council"}
+            </button>
           </div>
         </div>
       </div>
