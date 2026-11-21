@@ -863,7 +863,14 @@ const studentResults = useMemo(() => {
           Academic Year
           <select
             value={selectedYear}
-            onChange={(event) => setSelectedYear(event.target.value)}
+onChange={(event) => {
+  if (
+    hasUnsavedChanges &&
+    !window.confirm("You have unsaved council changes. Continue without saving?")
+  ) return;
+
+  setSelectedYear(event.target.value);
+}}
             className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             {academicYears.map((year) => (
@@ -878,7 +885,14 @@ const studentResults = useMemo(() => {
           Term
           <select
             value={selectedTerm}
-            onChange={(event) => setSelectedTerm(event.target.value)}
+          onChange={(event) => {
+  if (
+    hasUnsavedChanges &&
+    !window.confirm("You have unsaved council changes. Continue without saving?")
+  ) return;
+
+  setSelectedTerm(event.target.value);
+}}
             className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             {terms.map((term) => (
@@ -894,7 +908,14 @@ const studentResults = useMemo(() => {
           Class
           <select
             value={selectedClass}
-            onChange={(event) => setSelectedClass(event.target.value)}
+           onChange={(event) => {
+  if (
+    hasUnsavedChanges &&
+    !window.confirm("You have unsaved council changes. Continue without saving?")
+  ) return;
+
+  setSelectedClass(event.target.value);
+}}
             className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white p-2.5 font-normal outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
             {classes.map((schoolClass) => (
@@ -1190,23 +1211,16 @@ const studentResults = useMemo(() => {
           during the council meeting.
         </p>
 
-        <textarea
-          value={generalRemark}
-         onChange={(event) => {
-  if (
-    hasUnsavedChanges &&
-    !window.confirm(
-      "You have unsaved council changes. Continue without saving?"
-    )
-  ) {
-    return;
-  }
-
-  setSelectedYear(event.target.value);
-}}
-          rows={4}
+      <textarea
+  value={generalRemark}
+  onChange={(event) => {
+    setGeneralRemark(event.target.value);
+    setMessage("");
+    setHasUnsavedChanges(true);
+  }}
+          rows={2}
           placeholder="Enter general observations, recommendations or council notes..."
-          className="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 print:hidden"
+         className="mt-2 w-full rounded-lg border border-slate-300 p-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 print:hidden"
         />
 
         <p className="hidden whitespace-pre-wrap print:block">
