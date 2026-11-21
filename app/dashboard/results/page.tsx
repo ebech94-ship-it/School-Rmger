@@ -218,7 +218,7 @@ export default function ReportsPage() {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [focusedStudentId, setFocusedStudentId] = useState("");
   const [previewStudentIds, setPreviewStudentIds] = useState<string[]>([]);
-  const [printRequested, setPrintRequested] = useState(false);
+ 
 const [previewOpen, setPreviewOpen] = useState(false);
 
   // Load school data
@@ -760,18 +760,7 @@ const [previewOpen, setPreviewOpen] = useState(false);
     ]
   );
 
-  // Print only after the requested report cards have rendered
-  useEffect(() => {
-    if (!printRequested || previewStudentIds.length === 0) return;
-
-    const frame = window.requestAnimationFrame(() => {
-      window.print();
-      setPrintRequested(false);
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, [printRequested, previewStudentIds]);
-
+  
   const toggleStudent = (studentId: string) => {
     setSelectedStudentIds((previous) =>
       previous.includes(studentId)
@@ -798,9 +787,10 @@ const [previewOpen, setPreviewOpen] = useState(false);
     return selectedStudentIds[0] || classStudents[0]?.id || "";
   };
 
-  const previewOne = () => {
+const previewOne = () => {
   const id = getOneStudentId();
   if (!id) return;
+
   setPreviewStudentIds([id]);
   setPreviewOpen(true);
 };
@@ -811,6 +801,7 @@ const previewSelected = () => {
     .map((student) => student.id);
 
   if (!ids.length) return;
+
   setPreviewStudentIds(ids);
   setPreviewOpen(true);
 };
@@ -818,35 +809,9 @@ const previewSelected = () => {
 const previewAll = () => {
   const ids = classStudents.map((student) => student.id);
   if (!ids.length) return;
+
   setPreviewStudentIds(ids);
   setPreviewOpen(true);
-};
-
-const printOne = () => {
-  const id = getOneStudentId();
-  if (!id) return;
-
-  setPreviewStudentIds([id]);
-  setPrintRequested(true);
-};
-
-const printSelected = () => {
-  const ids = classStudents
-    .filter((student) => selectedStudentIds.includes(student.id))
-    .map((student) => student.id);
-
-  if (!ids.length) return;
-
-  setPreviewStudentIds(ids);
-  setPrintRequested(true);
-};
-
-const printAll = () => {
-  const ids = classStudents.map((student) => student.id);
-  if (!ids.length) return;
-
-  setPreviewStudentIds(ids);
-  setPrintRequested(true);
 };
   if (loading) {
     return (
@@ -889,7 +854,7 @@ const printAll = () => {
   setSelectedStudentIds([]);
   setFocusedStudentId("");
   setPreviewStudentIds([]);
-  setPrintRequested(false);
+  
 }}
             className="mt-1 w-full rounded border p-2 font-normal"
           >
@@ -910,7 +875,7 @@ const printAll = () => {
   setSelectedStudentIds([]);
   setFocusedStudentId("");
   setPreviewStudentIds([]);
-  setPrintRequested(false);
+  
 }}
             className="mt-1 w-full rounded border p-2 font-normal"
           >
@@ -931,7 +896,7 @@ const printAll = () => {
   setSelectedStudentIds([]);
   setFocusedStudentId("");
   setPreviewStudentIds([]);
-  setPrintRequested(false);
+  
 }}
             className="mt-1 w-full rounded border p-2 font-normal"
           >
@@ -1075,7 +1040,7 @@ const printAll = () => {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={printOne}
+                onClick={previewOne}
                 disabled={classStudents.length === 0 || reportLoading}
                 className="rounded bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-40"
               >
@@ -1084,7 +1049,7 @@ const printAll = () => {
 
               <button
                 type="button"
-                onClick={printSelected}
+                onClick={previewSelected}
                 disabled={selectedStudentIds.length === 0 || reportLoading}
                 className="rounded bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-40"
               >
@@ -1093,7 +1058,7 @@ const printAll = () => {
 
               <button
                 type="button"
-                onClick={printAll}
+                onClick={previewAll}
                 disabled={classStudents.length === 0 || reportLoading}
                 className="rounded bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800 disabled:opacity-40"
               >
@@ -1101,9 +1066,12 @@ const printAll = () => {
               </button>
             </div>
 
-            <p className="mt-3 text-xs text-gray-500">
-              Each selected student&apos;s report will be printed on a separate A4 page.
-            </p>
+           <p className="mt-3 text-xs leading-relaxed text-gray-500">
+  Each student&apos;s report is prepared on a separate A4 page.
+  Open the preview, tap Print / Save PDF, then choose Save as PDF
+  in your device&apos;s print options where available. You can then
+  share the saved PDF through WhatsApp.
+</p>
           </div>
 
           <div className="rounded-lg border bg-blue-50 p-4 text-sm text-blue-900">
@@ -1132,13 +1100,13 @@ const printAll = () => {
   </h2>
 
   <div className="flex gap-2">
-    <button
-      type="button"
-      onClick={() => window.print()}
-      className="rounded bg-blue-700 px-4 py-2 text-sm font-bold text-white"
-    >
-      Print
-    </button>
+   <button
+  type="button"
+  onClick={() => window.print()}
+  className="rounded bg-blue-700 px-4 py-2 text-sm font-bold text-white"
+>
+  Print / Save PDF
+</button>
 
     <button
       type="button"
@@ -1171,11 +1139,14 @@ const printAll = () => {
                           SECONDAIRE
                         </div>
 
-                        <div className="text-sm sm:text-base">
-                          GOVERNMENT TECHNICAL HIGH SCHOOL
-                          <br />
-                          GTHS KUMBO
-                        </div>
+                       <div className="text-[7px] font-black leading-tight sm:text-base">
+  <span className="block whitespace-nowrap">
+    GOVERNMENT TECHNICAL
+  </span>
+  <span className="block whitespace-nowrap">
+    HIGH SCHOOL, KUMBO
+  </span>
+</div>
 
                         <div>
                           MINISTRY OF SECONDARY
@@ -1288,33 +1259,55 @@ const printAll = () => {
                                   TEACHER
                                 </th>
 
-                                {orderedTerms.map((term) => (
-                                  <th
-                                    key={term.id}
-                                    className="w-[12%] border border-blue-900 p-1"
-                                  >
-                                    {term.name}
-                                    <br />
-                                    /20
-                                  </th>
-                                ))}
+                               <th className="w-[9%] border border-blue-900 p-1">
+  1st Seq
+</th>
+<th className="w-[9%] border border-blue-900 p-1">
+  2nd Seq
+</th>
+<th className="w-[9%] border border-blue-900 p-1">
+  AVRG
+</th>
 
-                                <th className="w-[8%] border border-blue-900 p-1">
-                                  COEFF.
-                                </th>
-                                <th className="w-[14%] border border-blue-900 p-1">
-                                  GRADE / REMARKS
-                                </th>
+                              <th className="w-[7%] border border-blue-900 p-1">
+  COEFF.
+</th>
+<th className="w-[10%] border border-blue-900 p-1">
+  TOTAL MARKS
+</th>
+<th className="w-[13%] border border-blue-900 p-1">
+  GRADE / REMARKS
+</th>
                               </tr>
                             </thead>
 
                             <tbody>
                               {category.subjects.map((subject) => {
-                                const selectedResult =
-                                  subject.termResults[selectedTerm];
+                               const selectedResult = subject.termResults[selectedTerm];
 
-                                const selectedAverage =
-                                  selectedResult?.average ?? null;
+const firstSequence = subject.assessments.find(
+  (assessment) => /1st|first/i.test(assessment.name)
+);
+
+const secondSequence = subject.assessments.find(
+  (assessment) => /2nd|second/i.test(assessment.name)
+);
+
+const firstMark = selectedResult?.assessmentMarks.find(
+  (item) => item.assessmentId === firstSequence?.id
+);
+
+const secondMark = selectedResult?.assessmentMarks.find(
+  (item) => item.assessmentId === secondSequence?.id
+);
+
+const selectedAverage = selectedResult?.average ?? null;
+
+const totalMarks =
+  selectedResult?.complete
+    ? `${display(selectedResult.totalMark)}/${display(selectedResult.totalMaximum)}`
+    : "—";
+                     
 
                                 return (
                                   <tr key={subject.subjectId}>
@@ -1326,43 +1319,25 @@ const printAll = () => {
                                       {subject.teacherName}
                                     </td>
 
-                                    {orderedTerms.map((term) => {
-                                      const result =
-                                        subject.termResults[term.id];
+                             <td className="border border-blue-800 p-1 text-center">
+  {firstMark ? display(firstMark.mark) : "—"}
+</td>
 
-                                      return (
-                                        <td
-                                          key={term.id}
-                                          className="border border-blue-800 p-1 text-center"
-                                        >
-                                          <div className="font-bold">
-                                            {display(result?.average)}
-                                          </div>
+<td className="border border-blue-800 p-1 text-center">
+  {secondMark ? display(secondMark.mark) : "—"}
+</td>
 
-                                          {term.id === selectedTerm &&
-                                            subject.assessments.length > 0 && (
-                                         <div className="text-[7px] leading-tight font-normal">
-  {subject.assessments.map((assessment, index) => {
-    const entry = result?.assessmentMarks.find(
-      (item) => item.assessmentId === assessment.id
-    );
+<td className="border border-blue-800 p-1 text-center font-bold">
+  {display(selectedAverage)}
+</td>
 
-    return (
-      <span key={assessment.id}>
-        {index > 0 ? " · " : ""}
-        {assessment.name}: {display(entry?.mark)}/{assessment.maxMark}
-      </span>
-    );
-  })}
-</div>
-                                            )}
-                                        </td>
-                                      );
-                                    })}
+                               <td className="border border-blue-800 p-1 text-center">
+  {subject.coefficient ?? "—"}
+</td>
 
-                                    <td className="border border-blue-800 p-1 text-center">
-                                      {subject.coefficient ?? "—"}
-                                    </td>
+<td className="border border-blue-800 p-1 text-center">
+  {totalMarks}
+</td>
 
                                     <td className="border border-blue-800 p-1 text-center">
                                       <strong>
@@ -1388,19 +1363,11 @@ const printAll = () => {
                                   {category.name.toUpperCase()} TOTAL / AVERAGE
                                 </td>
 
-                                {orderedTerms.map((term) => (
-                                  <td
-                                    key={term.id}
-                                    className="border border-blue-800 p-1 text-center"
-                                  >
-                                    {display(
-                                      calculateWeightedAverage(
-                                        category.subjects,
-                                        term.id
-                                      )
-                                    )}
-                                  </td>
-                                ))}
+                               <td className="border border-blue-800 p-1 text-center">—</td>
+<td className="border border-blue-800 p-1 text-center">—</td>
+<td className="border border-blue-800 p-1 text-center">
+  {display(calculateWeightedAverage(category.subjects, selectedTerm))}
+</td>
 
                                 <td className="border border-blue-800 p-1 text-center">
                                   {category.subjects.reduce(
@@ -1424,7 +1391,7 @@ const printAll = () => {
                     <table className="w-full border-collapse text-[10px] sm:text-xs">
                       <tbody>
                         <tr className="bg-blue-100 font-black print:bg-blue-100">
-                          <td className="border border-blue-800 p-2">
+                          <td className="border border-blue-800 p-1 text-center">
                             GRAND AVERAGE
                           </td>
 
@@ -1447,128 +1414,126 @@ const printAll = () => {
                       </tbody>
                     </table>
 
-                    {/* SUMMARY AND RECAPITULATION */}
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] sm:text-xs">
-                      <div className="border border-blue-800 p-2">
-                        <h4 className="mb-1 text-center font-black">
-                          CLASS PERFORMANCE
-                        </h4>
+                
+{/* BOTTOM LAYOUT - TWO MAIN COLUMNS */}
+<div className="mt-2 mb-3 grid grid-cols-2 gap-2 text-[8px] leading-tight">
 
-                        <p>
-                          Class Average: {display(report.classAverage)}/20
-                        </p>
-                        <p>
-                          Student&apos;s Position:{" "}
-                          {report.position > 0 ? report.position : "—"} /{" "}
-                          {report.rankedCount}
-                        </p>
-                        <p>
-                          Passion: ____________________
-                        </p>
-                        <p>
-                          General Certificate: __________
-                        </p>
-                      </div>
+  {/* LEFT COLUMN: CLASS PERFORMANCE + PERFORMANCE INDICATORS */}
+<div className="space-y-1 text-[9px] leading-normal">
 
-                      <div className="border border-blue-800 p-2">
-                        <h4 className="mb-1 text-center font-black">
-                          RECAPITULATION
-                        </h4>
+    {/* CLASS PERFORMANCE */}
+<div className="min-h-[80px] border border-blue-800 p-3 text-[10px] leading-relaxed">
+      <h4 className="mb-1 border-b border-blue-800 pb-1 text-center font-black">
+        CLASS PERFORMANCE
+      </h4>
 
-                        {orderedTerms.map((term) => (
-                          <p key={term.id}>
-                            {term.name} Average:{" "}
-                            {display(report.termAverages[term.id])}/20
-                          </p>
-                        ))}
+      <p>Class Average: {display(report.classAverage)}/20</p>
+      <p>
+        Student&apos;s Position:{" "}
+        {report.position > 0 ? report.position : "—"} / {report.rankedCount}
+      </p>
+      <p>Passion: ____________________</p>
+      <p>General Certificate: __________</p>
+    </div>
 
-                        <p>
-                          Annual Average:{" "}
-                          {display(
-                            (() => {
-                              const values = terms
-                                .map((term) => report.termAverages[term.id])
-                                .filter(
-                                  (value): value is number => value !== null
-                                );
+    {/* PERFORMANCE INDICATORS */}
+    <div className="min-h-[75px] border border-blue-800 text-[10px]">
+      <h4 className="border-b border-blue-800 bg-blue-100 px-1 py-1 text-center font-black">
+        PERFORMANCE INDICATORS
+      </h4>
 
-                              return values.length > 0
-                                ? values.reduce((sum, value) => sum + value, 0) /
-                                    values.length
-                                : null;
-                            })()
-                          )}
-                          /20
-                        </p>
-                      </div>
-                    </div>
+      {[
+        ["Excellent", "18–20"],
+        ["Very Good", "16–17"],
+        ["Good", "14–15"],
+        ["Satisfactory", "12–13"],
+        ["Passable", "10–11"],
+        ["Poor", "08–09"],
+        ["Very Weak", "06–07"],
+        ["Insufficient", "00–05"],
+      ].map(([label, range]) => (
+        <div
+          key={label}
+      className="flex justify-between border-t border-blue-800 px-2 py-[2px]"
+        >
+          <span>{label}</span>
+          <strong>{range}</strong>
+        </div>
+      ))}
+    </div>
+  </div>
 
-                   {/* PERFORMANCE INDICATORS */}
-<div className="mt-1 grid grid-cols-2 gap-1 text-[8px] leading-tight">
-  <div className="border border-blue-800">
-    <h4 className="bg-blue-100 px-1 py-0.5 text-center font-black">
-      PERFORMANCE INDICATOR
-    </h4>
+  {/* RIGHT COLUMN: RECAPITULATION + COUNCIL + PRINCIPAL */}
+  <div className="space-y-2">
 
-    {[
-      ["Excellent", "18–20"],
-      ["Very Good", "16–17"],
-      ["Good", "14–15"],
-      ["Satisfactory", "12–13"],
-      ["Passable", "10–11"],
-      ["Poor", "08–09"],
-      ["Very Weak", "06–07"],
-      ["Insufficient", "00–05"],
-    ].map(([label, range]) => (
-      <div
-        key={label}
-        className="flex justify-between border-t border-blue-800 px-1 py-[2px]"
-      >
-        <span>{label}</span>
-        <strong>{range}</strong>
+    {/* TOP RIGHT BOX: RECAPITULATION AND COUNCIL DECISION */}
+    <div className="grid grid-cols-2 border border-blue-800">
+
+      {/* RECAPITULATION */}
+      <div className="border-r border-blue-800 p-2 text-[13px]">
+        <h4 className="mb-1 border-b border-blue-800 pb-1 text-center font-black">
+          RECAPITULATION
+        </h4>
+
+        {orderedTerms.map((term) => (
+          <p key={term.id} className="mb-1">
+            {term.name}: {display(report.termAverages[term.id])}/20
+          </p>
+        ))}
+
+       <p className="mt-1 border-t border-blue-800 pt-1 font-black text-[9px]">
+         First Term Average:{" "}
+          {display(
+            (() => {
+              const values = terms
+                .map((term) => report.termAverages[term.id])
+                .filter((value): value is number => value !== null);
+
+              return values.length > 0
+                ? values.reduce((sum, value) => sum + value, 0) /
+                    values.length
+                : null;
+            })()
+          )}/20
+        </p>
       </div>
-    ))}
-  </div>
 
-  <div className="border border-blue-800">
-    <h4 className="bg-blue-100 px-1 py-0.5 text-center font-black">
-      CLASS COUNCIL DECISION
-    </h4>
+      {/* CLASS COUNCIL DECISION */}
+      <div>
+        <h4 className="border-b border-blue-800 bg-blue-100 px-1 py-1 text-center font-black">
+          CLASS COUNCIL DECISION
+        </h4>
 
-    <div className="space-y-1 p-2 text-center font-bold">
-      <p>PROMOTED: ______________</p>
-      <p>REPEAT: _________________</p>
-      <p>DISMISSED: ______________</p>
-      <p>CANNOT TRIPPLE: __________</p>
+        <div className="space-y-2 p-2 text-center font-bold">
+          <p>PROMOTED: __________</p>
+          <p>REPEAT: _____________</p>
+          <p>DISMISSED: __________</p>
+          <p>CANNOT TRIPPLE: _____</p>
+        </div>
+
+        <div className="border-t border-blue-800 px-1 py-2 text-center">
+          <p className="font-bold">DISCIPLINE</p>
+          <p>__________________</p>
+        </div>
+      </div>
     </div>
 
-    <div className="border-t border-blue-800 px-1 py-1 text-center">
-      <p className="font-bold">DISCIPLINE</p>
-      <p>________________________</p>
+    {/* BOTTOM RIGHT BOX: PRINCIPAL SIGNATURE */}
+    <div className="flex min-h-[150px] flex-col justify-end border border-blue-800 p-2 text-center">
+      <p className="font-bold">THE PRINCIPAL</p>
+      <div className="h-20"></div>
+      <p className="border-t border-black pt-1 font-semibold">
+        Signature and Official Stamp
+      </p>
     </div>
-  </div>
-</div>
 
-{/* SIGNATURES */}
-<div className="mt-2 grid grid-cols-2 gap-4 text-center text-[9px]">
-  <div>
-    <p className="font-bold">CLASS MASTER</p>
-    <p className="mt-4 border-t border-black pt-1">
-      Signature
-    </p>
-  </div>
-
-  <div>
-    <p className="font-bold">PRINCIPAL</p>
-    <p className="mt-4 border-t border-black pt-1">
-      Signature and Stamp
-    </p>
   </div>
 </div>
 
 <p className="mt-1 text-center text-[7px]">
   Generated from the school results management system.
 </p>
+
                   </article>
                 );
               })}
