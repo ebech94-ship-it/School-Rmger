@@ -896,7 +896,7 @@ const completedCount = students.filter((student) => {
     <main className="min-h-screen bg-slate-50 text-slate-800">
       <header className="flex items-center justify-between border-b bg-white px-4 py-4 md:px-8">
         <div>
-          <h1 className="text-xl font-bold text-blue-950">GS SCHOOL</h1>
+          <h1 className="text-xl font-bold text-blue-950">GODSPEED SCHOLAR</h1>
           <p className="text-xs text-slate-500">Teacher marks management</p>
         </div>
 

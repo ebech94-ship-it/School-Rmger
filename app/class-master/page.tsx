@@ -230,7 +230,7 @@ const filteredAssignments = activeAssignments.filter(
     <main className="min-h-screen bg-slate-50 text-slate-800">
       <header className="flex items-center justify-between border-b bg-white px-4 py-4 md:px-8">
         <div>
-          <h1 className="text-xl font-bold text-blue-950">GS SCHOOL</h1>
+          <h1 className="text-xl font-bold text-blue-950">GODSPEED SCHOLAR</h1>
           <p className="text-xs text-slate-500">Class Master Workspace</p>
         </div>
 
@@ -384,7 +384,7 @@ const filteredAssignments = activeAssignments.filter(
         )}
 
         <p className="mt-8 text-center text-xs text-slate-400">
-          GS SCHOOL · School Results Management
+          GODSPEED SCHOLAR · School Results Management
         </p>
       </div>
     </main>

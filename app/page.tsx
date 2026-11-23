@@ -77,7 +77,7 @@ export default function LandingPage() {
 
             <div>
               <p className="text-xl font-black tracking-[1px] text-white sm:text-2xl">
-                GS <span className="text-[#dfbd79]">SCHOOL</span>
+                GODSPEED <span className="text-[#dfbd79]">SCHOLAR</span>
               </p>
               <p className="mt-0.5 text-[10px] font-semibold tracking-[1.5px] text-slate-300">
                 GODSPEED TECHNOLOGIES
@@ -347,7 +347,7 @@ export default function LandingPage() {
             </h2>
 
             <p className="mt-4 text-sm leading-7 text-[#505a69]">
-              GS School is an education technology product developed
+              GODSPEED SCHOLAR is an education technology product developed
               under GodSpeed Technologies, with a vision to create
               practical digital solutions that address real needs
               in education and beyond.
@@ -452,7 +452,7 @@ export default function LandingPage() {
 
             <div>
               <p className="text-lg font-black tracking-wide text-white">
-                GS SCHOOL
+                GODSPEED SCHOLAR
               </p>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-[1.5px] text-[#d9b66f]">
                 Academic Management
@@ -478,6 +478,12 @@ export default function LandingPage() {
                 <a href="#about" className="transition hover:text-[#e5c47e]">
                   About
                 </a>
+                <Link
+  href="/login?next=/register-school"
+  className="text-[10px] text-slate-500 transition hover:text-[#d9b66f]"
+>
+  © 15th/May/2026
+</Link>
               </div>
             </div>
 
@@ -506,7 +512,7 @@ export default function LandingPage() {
 
           <div className="mt-8 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-center sm:flex-row sm:text-left">
             <p className="text-[11px] text-slate-400">
-              © {new Date().getFullYear()} GS School. All rights reserved.
+              © {new Date().getFullYear()} GODSPEED SCHOLAR. All rights reserved.
             </p>
 
             <p className="text-xs font-medium text-slate-300">

@@ -21,68 +21,135 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"error" | "success">("error");
+const [destinations, setDestinations] = useState<
+  { label: string; href: string }[]
+>([]);
+const [showDestinations, setShowDestinations] = useState(false);
 
-  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
 
-    setLoading(true);
-    setMessage("");
 
-    try {
-      const credential = await signInWithEmailAndPassword(
-        auth,
-        email.trim(),
-        password
-      );
+async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+  event.preventDefault();
 
-      const userRef = doc(db, "users", credential.user.uid);
-      const userSnap = await getDoc(userRef);
+  setLoading(true);
+  setMessage("");
+  setShowDestinations(false);
+  setDestinations([]);
 
-      if (!userSnap.exists()) {
-        await signOut(auth);
-        throw new Error("Your account has not been assigned a school role.");
-      }
+  try {
+    const credential = await signInWithEmailAndPassword(
+      auth,
+      email.trim(),
+      password
+    );
 
-      const profile = userSnap.data();
+    const userRef = doc(db, "users", credential.user.uid);
+    const userSnap = await getDoc(userRef);
+    const profile = userSnap.exists() ? userSnap.data() : {};
 
-      if (profile.active !== true || !profile.schoolId) {
-        await signOut(auth);
-        throw new Error("Your school account is inactive. Contact your administrator.");
-      }
+    // Ask the server whether this account is Super Admin.
+    const token = await credential.user.getIdToken();
 
-      if (profile.role === "technical_admin") {
-        router.replace("/dashboard");
-      } else if (profile.role === "class_master") {
-        router.replace("/class-master");
-      } else if (profile.role === "teacher") {
-        router.replace("/teacher");
-      } else {
-        await signOut(auth);
-        throw new Error("Your account has an unrecognised role.");
-      }
-    } catch (error: unknown) {
-      const code = (error as { code?: string }).code;
+    const superAdminResponse = await fetch("/api/super-admin/check", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
-      const errorMessages: Record<string, string> = {
-        "auth/invalid-credential": "Incorrect email or password.",
-        "auth/user-not-found": "No account was found with this email.",
-        "auth/wrong-password": "Incorrect email or password.",
-        "auth/too-many-requests": "Too many attempts. Please try again later.",
-        "auth/network-request-failed": "Network error. Check your internet connection.",
-        "auth/invalid-email": "Please enter a valid email address.",
-      };
+    const superAdminData = await superAdminResponse.json();
+    const isSuperAdmin =
+      superAdminResponse.ok && superAdminData.authorized === true;
 
-      setMessage(
-        error instanceof Error && !code
-          ? error.message
-          : errorMessages[code || ""] || "Unable to sign in. Please try again."
-      );
+    // Support both the existing single role and a future roles array.
+    const roles: string[] = Array.isArray(profile.roles)
+      ? profile.roles
+      : profile.role
+        ? [profile.role]
+        : [];
 
-      setMessageType("error");
-    } finally {
-      setLoading(false);
+    const schoolAccountActive =
+      profile.active === true && !!profile.schoolId;
+
+    const availableDestinations: { label: string; href: string }[] = [];
+
+    if (isSuperAdmin) {
+      availableDestinations.push({
+        label: "Super Admin — Register a School",
+        href: "/register-school",
+      });
     }
+
+    if (schoolAccountActive) {
+      if (roles.includes("technical_admin")) {
+        availableDestinations.push({
+          label: "Technical Admin — School Dashboard",
+          href: "/dashboard",
+        });
+      }
+
+      if (roles.includes("class_master")) {
+        availableDestinations.push({
+          label: "Class Master Workspace",
+          href: "/class-master",
+        });
+      }
+
+      if (roles.includes("teacher")) {
+        availableDestinations.push({
+          label: "Teacher Workspace",
+          href: "/teacher",
+        });
+      }
+    }
+
+    if (availableDestinations.length === 0) {
+      await signOut(auth);
+      throw new Error(
+        "Your account has no active access role. Contact your administrator."
+      );
+    }
+
+    // Super Admin gets a choice of authorised destinations.
+    if (isSuperAdmin) {
+      setDestinations(availableDestinations);
+      setShowDestinations(true);
+      return;
+    }
+
+    // Ordinary school users retain automatic routing.
+    if (availableDestinations.length === 1) {
+      router.replace(availableDestinations[0].href);
+      return;
+    }
+
+    // Accounts with multiple school roles can choose.
+    setDestinations(availableDestinations);
+    setShowDestinations(true);
+
+  } catch (error: unknown) {
+    const code = (error as { code?: string }).code;
+
+    const errorMessages: Record<string, string> = {
+      "auth/invalid-credential": "Incorrect email or password.",
+      "auth/user-not-found": "No account was found with this email.",
+      "auth/wrong-password": "Incorrect email or password.",
+      "auth/too-many-requests": "Too many attempts. Please try again later.",
+      "auth/network-request-failed": "Network error. Check your internet connection.",
+      "auth/invalid-email": "Please enter a valid email address.",
+    };
+
+    setMessage(
+      error instanceof Error && !code
+        ? error.message
+        : errorMessages[code || ""] || "Unable to sign in. Please try again."
+    );
+
+    setMessageType("error");
+  } finally {
+    setLoading(false);
   }
+}
 
   async function handlePasswordReset() {
     if (!email.trim()) {
@@ -119,7 +186,7 @@ export default function LoginPage() {
             GS
           </div>
           <h1 className="mt-3 text-xl font-black tracking-[2px] text-white">
-            GS SCHOOL
+            GODSPEED SCHOLAR
           </h1>
           <p className="mt-1 text-[10px] font-bold tracking-[3px] text-[#d6ad61]">
             SCHOOL MANAGEMENT SYSTEM
@@ -153,7 +220,44 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form className="space-y-5" onSubmit={handleLogin}>
+          {showDestinations ? (
+  <div className="space-y-4">
+    <div className="text-center">
+      <h3 className="text-lg font-black text-[#142746]">
+        Choose your workspace
+      </h3>
+      <p className="mt-2 text-sm text-slate-500">
+        Select where you want to continue.
+      </p>
+    </div>
+
+    {destinations.map((destination) => (
+      <button
+        key={destination.href}
+        type="button"
+        onClick={() => router.replace(destination.href)}
+        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4 text-left text-sm font-bold text-[#142746] transition hover:border-[#c49a50] hover:bg-amber-50"
+      >
+        {destination.label}
+        <span>→</span>
+      </button>
+    ))}
+
+    <button
+      type="button"
+      onClick={async () => {
+        await signOut(auth);
+        setShowDestinations(false);
+        setDestinations([]);
+        setPassword("");
+      }}
+      className="w-full pt-2 text-sm font-semibold text-slate-500 hover:text-red-600"
+    >
+      Sign out
+    </button>
+  </div>
+) : (
+  <form className="space-y-5" onSubmit={handleLogin}>
             <div>
               <label htmlFor="email" className="mb-2 block text-sm font-bold text-slate-700">
                 Email address
@@ -227,8 +331,8 @@ export default function LoginPage() {
               {loading ? "Please wait..." : "Sign in to your account"}
               {!loading && <span className="transition-transform group-hover:translate-x-1">→</span>}
             </button>
-          </form>
-
+        </form>
+)}
           <div className="mt-7 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
             <p className="text-xs leading-6 text-slate-600">
               Access is provided by your school&apos;s Technical Administrator.
@@ -249,7 +353,7 @@ export default function LoginPage() {
             Kumba, Cameroon
           </p>
           <p className="mt-3 text-[10px] text-slate-500">
-            © 2026 GS SCHOOL. All rights reserved.
+            © 2026 GODSPEED SCHOLAR. All rights reserved.
           </p>
         </div>
       </div>

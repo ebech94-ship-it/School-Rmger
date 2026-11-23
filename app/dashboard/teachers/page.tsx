@@ -724,7 +724,7 @@ for (const previous of existing) {
 
       <a
         href={`https://wa.me/?text=${encodeURIComponent(
-          `Hello, you have been registered as a teacher on GS SCHOOL. Please use this link to activate your account: ${invitationLink}`
+          `Hello, you have been registered as a teacher on GODSPEED SCHOLAR. Please use this link to activate your account: ${invitationLink}`
         )}`}
         target="_blank"
         rel="noopener noreferrer"

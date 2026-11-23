@@ -70,7 +70,7 @@ export default function AcceptInvitationPage() {
             GodSpeed Technologies
           </p>
           <h1 className="mt-2 text-3xl font-black text-white">
-            GS SCHOOL
+           GODSPEED SCHOLAR
           </h1>
           <p className="mt-2 text-sm text-slate-300">
             Teacher account activation
