@@ -1,5 +1,42 @@
 
 import Link from "next/link";
+import type { Metadata } from "next";
+import Image from "next/image";
+
+
+export const metadata: Metadata = {
+  metadataBase: new URL("https://gsscholar.vercel.app"),
+
+  title: "GS Scholar | Smart School Management",
+
+  description:
+    "Simplify student records, academic results and school administration with GS Scholar by GodSpeed Technologies.",
+
+  openGraph: {
+    title: "GS Scholar | Smart School Management",
+    description:
+      "Smarter processes. Accurate results. Excellent outcomes. Discover GS Scholar.",
+    url: "https://gs-school.vercel.app",
+    siteName: "GS Scholar",
+    images: [
+      {
+        url: "/gss.jpg",
+        width: 1536,
+        height: 1024,
+        alt: "GS Scholar by GodSpeed Technologies",
+      },
+    ],
+    type: "website",
+  },
+
+  twitter: {
+    card: "summary_large_image",
+    title: "GS Scholar | Smart School Management",
+    description:
+      "A better way to manage school records and academic results.",
+    images: ["/gss.jpg"],
+  },
+};
 
 const features = [
   {
@@ -174,9 +211,13 @@ export default function LandingPage() {
                   </p>
                 </div>
 
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#111e30] text-sm font-black text-[#e4c27e]">
-                  S
-                </div>
+              <Image
+  src="/gss.jpg"
+  alt="GS Scholar Logo"
+  width={64}
+  height={64}
+  className="h-14 w-14 rounded-xl bg-white p-1 object-contain"
+/>
               </div>
 
               <div className="mt-5 grid grid-cols-2 gap-3">
@@ -286,6 +327,82 @@ export default function LandingPage() {
           ))}
         </div>
       </section>
+
+
+{/* PRICING */}
+<section
+  id="pricing"
+  className="scroll-mt-24 border-y border-[#d6c39d] bg-[#e9e1d1] px-5 py-14 sm:px-8"
+>
+  <div className="mx-auto max-w-7xl">
+    <div className="mx-auto max-w-2xl text-center">
+      <p className="text-xs font-black uppercase tracking-[2px] text-[#a77b35]">
+        SIMPLE AND TRANSPARENT PRICING
+      </p>
+      <h2 className="mt-3 text-3xl font-black text-[#111e30]">
+        An investment in better school administration.
+      </h2>
+      <p className="mt-3 text-sm leading-7 text-[#596273]">
+        Pricing is structured according to your school&apos;s student population,
+        with a one-time onboarding fee and an annual subscription.
+      </p>
+    </div>
+
+    <div className="mt-9 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      {[
+        ["Up to 300 Students", "50,000"],
+        ["301 – 500 Students", "150,000"],
+        ["501 – 1,000 Students", "250,000"],
+        ["1,001 – 2,000 Students", "500,000"],
+      ].map(([size, price]) => (
+        <div
+          key={size}
+          className="rounded-2xl border border-[#d6c39d] bg-[#fffdf8] p-6 shadow-sm"
+        >
+          <p className="text-sm font-black text-[#29364a]">{size}</p>
+          <p className="mt-4 text-2xl font-black text-[#111e30]">
+            {price}
+            <span className="ml-1 text-xs font-bold text-[#98713a]">
+              FCFA
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-[#596273]">
+            One-time onboarding
+          </p>
+          <div className="my-5 h-px bg-[#ded5c3]" />
+          <p className="text-sm font-bold text-[#172335]">
+            500 FCFA / student
+          </p>
+          <p className="mt-1 text-xs text-[#596273]">
+            Annual subscription
+          </p>
+        </div>
+      ))}
+    </div>
+
+    <div className="mt-6 rounded-xl border border-[#d6c39d] bg-[#fffdf8] p-5 text-center">
+      <p className="font-black text-[#172335]">
+        More than 2,000 students?
+      </p>
+      <p className="mt-2 text-sm text-[#596273]">
+        Contact us for a tailored onboarding quotation.
+      </p>
+      <a
+        href="https://www.republic.beauty/contact.html"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-4 inline-block rounded-lg bg-[#111e30] px-6 py-3 text-sm font-bold text-[#e5c47e]"
+      >
+        Request a Quotation →
+      </a>
+    </div>
+
+    <p className="mt-5 text-center text-xs text-[#596273]">
+      Annual subscription is calculated using the school&apos;s registered
+      student population.
+    </p>
+  </div>
+</section>
 
       {/* WORKFLOW */}
       <section
@@ -471,6 +588,9 @@ export default function LandingPage() {
                 </Link>
                 <a href="#features" className="transition hover:text-[#e5c47e]">
                   Platform Features
+                </a>
+                <a href="#pricing" className="transition hover:text-[#e5c47e]">
+                   Pricing
                 </a>
                 <a href="#workflow" className="transition hover:text-[#e5c47e]">
                   How It Works
