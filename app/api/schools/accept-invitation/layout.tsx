@@ -9,11 +9,11 @@ export const metadata: Metadata = {
     title: "Welcome to GS Scholar",
     description:
       "Activate your teacher account and access your school's GS Scholar workspace.",
-    url: "https://gsscholar.vercel.app/accept-invitation",
+    url: "https://gs-school.vercel.app/accept-invitation",
     siteName: "GS Scholar",
     images: [
       {
-        url: "https://gsscholar.vercel.app/gss.jpg",
+        url: "https://gs-school.vercel.app/gss.jpg",
         alt: "GS Scholar by GodSpeed Technologies",
       },
     ],
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "Welcome to GS Scholar",
     description: "Activate your GS Scholar teacher account.",
-    images: ["https://gsscholar.vercel.app/gss.jpg"],
+    images: ["https://gs-school.vercel.app/gss.jpg"],
   },
 };
 
