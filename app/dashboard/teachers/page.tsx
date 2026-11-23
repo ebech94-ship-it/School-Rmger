@@ -722,16 +722,29 @@ for (const previous of existing) {
         Copy invitation link
       </button>
 
-      <a
-        href={`https://wa.me/?text=${encodeURIComponent(
-          `Hello, you have been registered as a teacher on GODSPEED SCHOLAR. Please use this link to activate your account: ${invitationLink}`
-        )}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-900"
-      >
-        Share on WhatsApp
-      </a>
+   
+<a
+  href={`https://wa.me/?text=${encodeURIComponent(
+    `Hello ${teachers.find((t) => t.id === invitingId)?.name || "Teacher"},
+
+Welcome to GS Scholar by GodSpeed Technologies!
+
+You have been invited to activate your teacher account on GS Scholar, our school management platform.
+
+Use this secure link to activate your account:
+${invitationLink}
+
+This invitation expires in 48 hours.
+
+GS Scholar — Smarter processes. Accurate results. Excellent outcomes.`
+  )}`}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-900"
+>
+  Share on WhatsApp
+</a>
+
     </div>
 
     <p className="mt-2 text-xs text-blue-700">

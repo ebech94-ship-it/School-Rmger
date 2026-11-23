@@ -155,8 +155,8 @@ export async function POST(request: NextRequest) {
     invitationUrl.searchParams.set("token", token);
 
     const whatsappMessage = encodeURIComponent(
-      `Hello ${schoolData.contactName},\n\nYour school ${schoolData.schoolName} has been registered on GODSPEED SCHOLAR.\n\nPlease use this secure invitation link to create your Technical Administrator account:\n${invitationUrl.toString()}\n\nThis invitation expires in 7 days.`
-    );
+  `Hello ${schoolData.contactName},\n\nWelcome to GS Scholar by GodSpeed Technologies!\n\n${schoolData.schoolName} is invited to join our school management platform, designed to simplify student records, academic results and school administration.\n\nActivate your school's workspace using this secure link:\n${invitationUrl.toString()}\n\nThis invitation expires in 7 days.\n\nGS Scholar — Smarter processes. Accurate results. Excellent outcomes.`
+);
 
     return NextResponse.json({
       success: true,
