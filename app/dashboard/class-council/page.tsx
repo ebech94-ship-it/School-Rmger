@@ -83,6 +83,7 @@ type Mark = {
 type CouncilEdit = {
   remark: string;
   decision: string;
+  discipline: string;
 };
 
 const remarkOptions = [
@@ -90,22 +91,36 @@ const remarkOptions = [
   "Very Good",
   "Good",
   "Fair",
-  "Needs improvement",
+  "Needs Improvement",
   "Poor",
   "Very Poor",
 ];
 
-const decisionOptions = [
+const firstSecondTermDecisions = [
   "Passed",
+  "Needs Improvement",
   "Failed",
-  "Promoted",
-  "Conditional Promotion",
-  "To Repeat",
-  "Continue to Next Term",
-  "Academic Support Required",
-  "Monitor Progress",
-  "Pending Council Decision",
 ];
+
+const finalTermDecisions = [
+  "Promoted",
+  "Repeat",
+  "Dismissed",
+  "Cannot Repeat Again",
+];
+
+const disciplineOptions = [
+  "Excellent Conduct",
+  "Good Conduct",
+  "Satisfactory Conduct",
+  "Needs Improvement",
+  "Poor Conduct",
+  "Disciplinary Action Required",
+];
+
+
+
+
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value)
@@ -169,6 +184,13 @@ export default function ClassCouncilPage() {
   const [generalRemark, setGeneralRemark] = useState("");
   const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
 
+const isFinalTerm =
+  terms.length > 0 &&
+  selectedTerm === terms[terms.length - 1].id;
+
+const availableDecisions = isFinalTerm
+  ? finalTermDecisions
+  : firstSecondTermDecisions;
   // Load school records and verify Technical Admin access.
   useEffect(() => {
     let active = true;
@@ -422,15 +444,17 @@ setClassSubjectConfigs(
           if (Array.isArray(saved.students)) {
             saved.students.forEach(
               (student: {
-                studentId?: string;
-                remark?: string;
-                decision?: string;
-              }) => {
+  studentId?: string;
+  remark?: string;
+  decision?: string;
+  discipline?: string;
+}) => {
                 if (student.studentId) {
-                  savedEdits[student.studentId] = {
-                    remark: student.remark || "Good",
-                    decision: student.decision || "Pending",
-                  };
+                 savedEdits[student.studentId] = {
+  remark: student.remark || "",
+  decision: student.decision || "",
+  discipline: student.discipline || "",
+};
                 }
               }
             );
@@ -526,6 +550,17 @@ const studentResults = useMemo(() => {
     let complete = classAssignments.length > 0;
     const issues: string[] = [];
 
+const subjectBreakdown: {
+  subjectName: string;
+  assessments: {
+    name: string;
+    mark: number | null;
+    maxMark: number;
+  }[];
+  subjectAverage: number | null;
+  coefficient: number | null;
+}[] = [];
+
     classAssignments.forEach((assignment) => {
       const subject = subjects.find(
         (item) => item.id === assignment.subjectId
@@ -595,6 +630,25 @@ const studentResults = useMemo(() => {
         configuredAssessments
       );
 
+subjectBreakdown.push({
+  subjectName,
+  assessments: configuredAssessments.map((assessment) => {
+    const entry = assessmentMarks.find(
+      (item) => item.assessmentId === assessment.id
+    );
+
+    return {
+      name: assessment.name,
+      mark: numberOrNull(entry?.mark),
+      maxMark: assessment.maxMark,
+    };
+  }),
+  subjectAverage:
+    result.percentage === null
+      ? null
+      : Number((result.percentage / 5).toFixed(2)),
+  coefficient: numberOrNull(config.coefficient),
+});
       if (!result.complete || result.percentage === null) {
         complete = false;
         issues.push(`${subjectName}: assessment marks incomplete`);
@@ -638,6 +692,7 @@ const studentResults = useMemo(() => {
       average,
       complete: complete && average !== null,
       issues,
+        subjectBreakdown,
     };
   });
 }, [
@@ -702,13 +757,14 @@ const studentResults = useMemo(() => {
     value: string
   ) {
     setEdits((previous) => ({
-      ...previous,
-      [studentId]: {
-        remark: previous[studentId]?.remark || "Good",
-        decision: previous[studentId]?.decision || "Pending",
-        [field]: value,
-      },
-    }));
+    ...previous,
+    [studentId]: {
+      remark: previous[studentId]?.remark || "Good",
+      decision: previous[studentId]?.decision || "",
+      discipline: previous[studentId]?.discipline || "",
+      [field]: value,
+    },
+  }));
 
     setMessage("");
     setHasUnsavedChanges(true);
@@ -726,16 +782,17 @@ const studentResults = useMemo(() => {
       setError("");
       setMessage("");
 
-      const councilStudents = rankedStudents.map((student) => ({
-        studentId: student.id,
-        fullName: student.fullName,
-        admissionNumber: student.admissionNumber || "",
-        gender: student.gender || "",
-        average: student.average,
-        position: student.position,
-        remark: edits[student.id]?.remark || "Good",
-        decision: edits[student.id]?.decision || "Pending",
-      }));
+   const councilStudents = rankedStudents.map((student) => ({
+  studentId: student.id,
+  fullName: student.fullName,
+  admissionNumber: student.admissionNumber || "",
+  gender: student.gender || "",
+  average: student.average,
+  position: student.position,
+  remark: edits[student.id]?.remark || "Good",
+  decision: edits[student.id]?.decision || "",
+  discipline: edits[student.id]?.discipline || "",
+}));
 
       await setDoc(
         doc(
@@ -1072,6 +1129,7 @@ onChange={(event) => {
                   <th className="p-3">Position</th>
                   <th className="p-3">Class Remark</th>
                   <th className="p-3">Decision</th>
+                  <th className="p-3">Discipline / Conduct</th>
                   <th className="p-3">Result Status</th>
                 </tr>
               </thead>
@@ -1136,30 +1194,48 @@ onChange={(event) => {
                       </span>
                     </td>
 
-                    <td className="p-3">
-                      <select
-                        value={edits[student.id]?.decision || "Pending"}
-                        onChange={(event) =>
-                          updateStudent(
-                            student.id,
-                            "decision",
-                            event.target.value
-                          )
-                        }
-                       
-                        className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 print:hidden"
-                      >
-                        {decisionOptions.map((decision) => (
-                          <option key={decision} value={decision}>
-                            {decision}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="hidden print:inline">
-                        {edits[student.id]?.decision || "Pending"}
-                      </span>
-                    </td>
+                <td className="p-3">
+  <select
+    value={edits[student.id]?.decision || ""}
+    onChange={(event) =>
+      updateStudent(student.id, "decision", event.target.value)
+    }
+    className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm print:hidden"
+  >
+    <option value="">Select decision</option>
+    {availableDecisions.map((decision) => (
+      <option key={decision} value={decision}>
+        {decision}
+      </option>
+    ))}
+  </select>
 
+  <span className="hidden print:inline">
+    {edits[student.id]?.decision || "—"}
+  </span>
+</td>
+
+
+<td className="p-3">
+  <select
+    value={edits[student.id]?.discipline || ""}
+    onChange={(event) =>
+      updateStudent(student.id, "discipline", event.target.value)
+    }
+    className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm print:hidden"
+  >
+    <option value="">Select conduct</option>
+    {disciplineOptions.map((option) => (
+      <option key={option} value={option}>
+        {option}
+      </option>
+    ))}
+  </select>
+
+  <span className="hidden print:inline">
+    {edits[student.id]?.discipline || "—"}
+  </span>
+</td>
                     <td className="p-3">
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-bold ${
@@ -1185,7 +1261,7 @@ onChange={(event) => {
                 {displayedStudents.length === 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={9}
                       className="p-8 text-center text-sm text-slate-500"
                     >
                       No incomplete students found.

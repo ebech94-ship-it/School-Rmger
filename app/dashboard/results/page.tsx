@@ -17,6 +17,166 @@ import {
   type AssessmentMark,
 } from "@/lib/results-calculation";
 
+
+
+type ReportLabels = {
+  studentName: string;
+  academicYear: string;
+  speciality: string;
+  stream: string;
+  dateOfBirth: string;
+  class: string;
+  admissionNumber: string;
+  repeater: string;
+  studentNumber: string;
+  department: string;
+  subject: string;
+  teacher: string;
+  firstSequence: string;
+  secondSequence: string;
+  average: string;
+  coefficient: string;
+  totalMarks: string;
+  gradeRemarks: string;
+  finalized: string;
+  previewNotFinalized: string;
+  incompleteReport: string;
+  resultsAvailable: string;
+  selectedTerm: string;
+  incompleteWarning: string;
+  noAssignmentsMessage: string;
+  categoryTotalAverage: string;
+  grandAverage: string;
+  currentAverage: string;
+  classPerformance: string;
+  classAverage: string;
+  studentPosition: string;
+  passion: string;
+  generalCertificate: string;
+  performanceIndicators: string;
+  recapitulation: string;
+  firstTermAverage: string;
+ classCouncilDecision: string;
+
+// First and second term
+passed: string;
+needsImprovement: string;
+failed: string;
+
+// End-of-year
+promoted: string;
+repeat: string;
+dismissed: string;
+cannotTriple: string;
+
+discipline: string;
+  principalSignature: string;
+  signatureAndStamp: string;
+  generatedFooter: string;
+};
+
+type GradeBand = {
+  label: string;
+  range: string;
+};
+
+type SchoolSettings = {
+  identity?: {
+    schoolName?: string;
+    abbreviation?: string;
+    address?: string;
+    town?: string;
+    region?: string;
+    country?: string;
+  };
+  branding?: {
+    logoUrl?: string;
+    motto?: string;
+  };
+  report?: {
+    title?: string;
+    authorityHeaderLeft?: string;
+    authorityHeaderRight?: string;
+    principalTitle?: string;
+    footerText?: string;
+    showAdmissionNumber?: boolean;
+    showSpeciality?: boolean;
+    showDepartment?: boolean;
+    showStream?: boolean;
+    showDateOfBirth?: boolean;
+    labels?: Partial<ReportLabels>;
+    gradeBands?: GradeBand[];
+  };
+};
+
+const DEFAULT_REPORT_LABELS: ReportLabels = {
+  studentName: "Name:",
+  academicYear: "Academic Year:",
+  speciality: "Speciality:",
+  stream: "Stream:",
+  dateOfBirth: "Date of Birth:",
+  class: "Class:",
+  admissionNumber: "Admission No:",
+  repeater: "Repeater (Y/N):",
+  studentNumber: "Student's No:",
+  department: "Department:",
+  subject: "SUBJECT",
+  teacher: "TEACHER",
+  firstSequence: "1st Seq",
+  secondSequence: "2nd Seq",
+  average: "AVRG",
+  coefficient: "COEFF.",
+  totalMarks: "TOTAL MARKS",
+  gradeRemarks: "GRADE / REMARKS",
+  finalized: "FINALIZED RESULTS",
+  previewNotFinalized: "PREVIEW — NOT FINALIZED",
+  incompleteReport: "INCOMPLETE REPORT",
+  resultsAvailable: "RESULTS AVAILABLE",
+  selectedTerm: "Selected Term:",
+  incompleteWarning:
+    "Some marks, assessment configurations or subject coefficients are incomplete. Missing results are not treated as final zero marks.",
+  noAssignmentsMessage:
+    "No active teacher subject assignments were found for this student's class.",
+  categoryTotalAverage: "TOTAL / AVERAGE",
+  grandAverage: "GRAND AVERAGE",
+  currentAverage: "CURRENT:",
+  classPerformance: "CLASS PERFORMANCE",
+  classAverage: "Class Average:",
+  studentPosition: "Student's Position:",
+  passion: "Passion:",
+  generalCertificate: "General Certificate:",
+  performanceIndicators: "PERFORMANCE INDICATORS",
+  recapitulation: "RECAPITULATION",
+  firstTermAverage: "First Term Average:",
+  classCouncilDecision: "CLASS COUNCIL DECISION",
+
+passed: "PASSED:",
+needsImprovement: "NEEDS IMPROVEMENT:",
+failed: "FAILED:",
+
+promoted: "PROMOTED:",
+repeat: "REPEAT:",
+dismissed: "DISMISSED:",
+cannotTriple: "CANNOT REPEAT AGAIN:",
+
+discipline: "DISCIPLINE",
+  principalSignature: "THE PRINCIPAL",
+  signatureAndStamp: "Signature and Official Stamp",
+  generatedFooter:
+    "Generated from the school results management system.",
+};
+
+const DEFAULT_GRADE_BANDS: GradeBand[] = [
+  { label: "Excellent", range: "18–20" },
+  { label: "Very Good", range: "16–17" },
+  { label: "Good", range: "14–15" },
+  { label: "Satisfactory", range: "12–13" },
+  { label: "Passable", range: "10–11" },
+  { label: "Poor", range: "08–09" },
+  { label: "Very Weak", range: "06–07" },
+  { label: "Insufficient", range: "00–05" },
+];
+
 type AcademicYear = {
   id: string;
   name: string;
@@ -141,6 +301,10 @@ type StudentReport = {
   unconfiguredCoefficients: boolean;
   finalized: boolean;
 };
+type CouncilOutcome = {
+  decision: string;
+  discipline: string;
+};
 
 function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value)
@@ -181,21 +345,35 @@ function calculateWeightedAverage(
     : null;
 }
 
-function gradeFor(value: number | null): string {
+
+function gradeFor(
+  value: number | null,
+  bands: GradeBand[] = DEFAULT_GRADE_BANDS
+): string {
   if (value === null) return "—";
-  if (value >= 18) return "Excellent";
-  if (value >= 16) return "Very Good";
-  if (value >= 14) return "Good";
-  if (value >= 12) return "Satisfactory";
-  if (value >= 10) return "Passable";
-  if (value >= 8) return "Poor";
-  if (value >= 6) return "Very Weak";
-  return "Insufficient";
+
+  for (const band of bands) {
+    const numbers = band.range.match(/\d+(?:\.\d+)?/g);
+
+    if (!numbers || numbers.length < 2) continue;
+
+    const lower = Number(numbers[0]);
+    const upper = Number(numbers[1]);
+
+    if (value >= lower && value <= upper) {
+      return band.label || "—";
+    }
+  }
+
+  return "—";
 }
+
 
 export default function ReportsPage() {
   const router = useRouter();
 
+  const [schoolSettings, setSchoolSettings] =
+  useState<SchoolSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [reportLoading, setReportLoading] = useState(false);
   const [error, setError] = useState("");
@@ -220,7 +398,24 @@ export default function ReportsPage() {
   const [previewStudentIds, setPreviewStudentIds] = useState<string[]>([]);
  
 const [previewOpen, setPreviewOpen] = useState(false);
+const [councilOutcomes, setCouncilOutcomes] = useState<
+  Record<string, CouncilOutcome>
+>({});
 
+const labels: ReportLabels = {
+  ...DEFAULT_REPORT_LABELS,
+  ...Object.fromEntries(
+    Object.entries(schoolSettings?.report?.labels || {}).filter(
+      ([, value]) =>
+        typeof value === "string" && value.trim().length > 0
+    )
+  ),
+};
+
+const gradeBands =
+  schoolSettings?.report?.gradeBands?.length
+    ? schoolSettings.report.gradeBands
+    : DEFAULT_GRADE_BANDS;
   // Load school data
   useEffect(() => {
     let active = true;
@@ -252,6 +447,17 @@ const [previewOpen, setPreviewOpen] = useState(false);
         }
 
         const currentSchoolId = profile.schoolId;
+        const settingsSnap = await getDoc(
+  doc(db, "schools", currentSchoolId, "settings", "general")
+);
+
+if (active) {
+  setSchoolSettings(
+    settingsSnap.exists()
+      ? (settingsSnap.data() as SchoolSettings)
+      : null
+  );
+}
 
         const [
           yearsSnap,
@@ -499,6 +705,7 @@ const [previewOpen, setPreviewOpen] = useState(false);
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
   }, [enrollments, students]);
 
+
   const availableClasses = useMemo(() => {
     const classIds = new Set(activeStudents.map((student) => student.classId));
 
@@ -522,20 +729,89 @@ const [previewOpen, setPreviewOpen] = useState(false);
   [activeStudents, activeClassId]
 );
   
+  useEffect(() => {
+  let active = true;
+
+  async function loadCouncilOutcomes() {
+    if (!schoolId || !selectedYear || !selectedTerm || !activeClassId) {
+      setCouncilOutcomes({});
+      return;
+    }
+
+    setCouncilOutcomes({});
+
+    try {
+      const councilSnap = await getDoc(
+        doc(
+          db,
+          "schools",
+          schoolId,
+          "academicYears",
+          selectedYear,
+          "terms",
+          selectedTerm,
+          "classCouncils",
+          activeClassId
+        )
+      );
+
+      if (!active) return;
+
+      const outcomes: Record<string, CouncilOutcome> = {};
+
+      if (councilSnap.exists()) {
+        const savedStudents = councilSnap.data().students;
+
+        if (Array.isArray(savedStudents)) {
+          savedStudents.forEach(
+            (item: {
+              studentId?: string;
+              decision?: string;
+              discipline?: string;
+            }) => {
+              if (item.studentId) {
+                outcomes[item.studentId] = {
+                  decision:
+                    item.decision && item.decision !== "Pending"
+                      ? item.decision
+                      : "",
+                  discipline: item.discipline || "",
+                };
+              }
+            }
+          );
+        }
+      }
+
+      setCouncilOutcomes(outcomes);
+    } catch {
+      if (active) setCouncilOutcomes({});
+    }
+  }
+
+  loadCouncilOutcomes();
+
+  return () => {
+    active = false;
+  };
+}, [schoolId, selectedYear, selectedTerm, activeClassId]);
 
   const currentYear = academicYears.find(
     (year) => year.id === selectedYear
   );
 
-  const currentTerm = terms.find(
-    (term) => term.id === selectedTerm
-  );
 
-  const orderedTerms = useMemo(
-    () => terms.slice().sort((a, b) => a.order - b.order).slice(0, 3),
-    [terms]
-  );
+ const orderedTerms = useMemo(
+  () => terms.slice().sort((a, b) => a.order - b.order),
+  [terms]
+);
+const finalTerm = terms.reduce<Term | null>(
+  (latest, term) =>
+    !latest || term.order > latest.order ? term : latest,
+  null
+);
 
+const isFinalTerm = selectedTerm === finalTerm?.id;
   // Reset student selection when the class or academic period changes
 
 
@@ -820,6 +1096,7 @@ const previewAll = () => {
       </main>
     );
   }
+
 
   return (
     <main className="space-y-5 p-4 md:p-6">
@@ -1125,119 +1402,186 @@ const previewAll = () => {
               {previewReports.map((report) => {
                 const { student, schoolClass } = report;
 
+
+const selectedCouncilDecision =
+  councilOutcomes[student.id]?.decision || "";
+
+const decisionOptionsForReport: {
+  value: string;
+  label: string;
+  tone: "green" | "amber" | "red";
+}[] = isFinalTerm
+  ? [
+      {
+        value: "Promoted",
+        label: labels.promoted.replace(/:$/, ""),
+        tone: "green",
+      },
+      {
+        value: "Repeat",
+        label: labels.repeat.replace(/:$/, ""),
+        tone: "amber",
+      },
+      {
+        value: "Dismissed",
+        label: labels.dismissed.replace(/:$/, ""),
+        tone: "red",
+      },
+      {
+        value: "Cannot Repeat Again",
+        label: labels.cannotTriple.replace(/:$/, ""),
+        tone: "red",
+      },
+    ]
+  : [
+      {
+        value: "Passed",
+        label: labels.passed.replace(/:$/, ""),
+        tone: "green",
+      },
+      {
+        value: "Needs Improvement",
+        label: labels.needsImprovement.replace(/:$/, ""),
+        tone: "amber",
+      },
+      {
+        value: "Failed",
+        label: labels.failed.replace(/:$/, ""),
+        tone: "red",
+      },
+    ];
+
+
                 return (
                   <article
                     key={student.id}
                     className="report-sheet mx-auto max-w-[1100px] bg-white p-5 text-black shadow-md print:max-w-none print:p-0 print:shadow-none"
                   >
-                    {/* SCHOOL HEADING */}
-                    <header className="border-2 border-blue-800 p-2">
-                      <div className="grid grid-cols-3 items-center gap-2 text-center text-[10px] font-bold text-blue-900 sm:text-xs">
-                        <div>
-                          MINISTÈRE DE L&apos;ENSEIGNEMENT
-                          <br />
-                          SECONDAIRE
-                        </div>
 
-                       <div className="text-[7px] font-black leading-tight sm:text-base">
-  <span className="block whitespace-nowrap">
-    GOVERNMENT TECHNICAL
-  </span>
-  <span className="block whitespace-nowrap">
-    HIGH SCHOOL, KUMBO
-  </span>
-</div>
+              {/* SCHOOL HEADING */}
+<header className="border-2 border-blue-800 p-2">
+  <div className="grid grid-cols-3 items-center gap-2 text-center text-[9px] font-bold text-blue-900 sm:text-xs">
 
-                        <div>
-                          MINISTRY OF SECONDARY
-                          <br />
-                          EDUCATION
-                        </div>
-                      </div>
+    {/* Left authority heading */}
+    <div className="leading-tight">
+      {schoolSettings?.report?.authorityHeaderLeft ||
+        "MINISTÈRE DE L'ENSEIGNEMENT SECONDAIRE"}
+    </div>
 
-                      <div className="mx-auto mt-2 w-fit rounded-full border-4 border-blue-800 px-5 py-1 text-center text-lg font-black text-blue-900 sm:text-xl">
-                        PROGRESS RECORD
-                      </div>
+    {/* School identity and compact logo */}
+    <div className="flex min-w-0 items-center justify-center gap-1.5">
+      {schoolSettings?.branding?.logoUrl && (
+        <img
+          src={schoolSettings.branding.logoUrl}
+          alt="School logo"
+          className="h-10 w-10 shrink-0 object-contain"
+        />
+      )}
 
-                      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] sm:text-xs">
-                        <p>
-                          <strong>Name:</strong> {student.fullName}
-                        </p>
-                        <p>
-                          <strong>Academic Year:</strong> {currentYear?.name || "—"}
-                        </p>
+      <div className="min-w-0 text-center text-[7px] font-black leading-tight sm:text-[9px]">
+        <span className="block">
+          {schoolSettings?.identity?.schoolName || "SCHOOL NAME"}
+        </span>
 
-                        <p>
-                          <strong>Speciality:</strong>{" "}
-                          {student.specialty || schoolClass?.department || "—"}
-                        </p>
-                        <p>
-                          <strong>Stream:</strong> {schoolClass?.stream || "—"}
-                        </p>
+        {schoolSettings?.identity?.abbreviation && (
+          <span className="block">
+            {schoolSettings.identity.abbreviation}
+          </span>
+        )}
 
-                        <p>
-                          <strong>Date of Birth:</strong>{" "}
-                          {student.dateOfBirth || "—"}
-                        </p>
-                        <p>
-                          <strong>Class:</strong> {student.className}
-                        </p>
+       
+        {schoolSettings?.branding?.motto && (
+          <span className="mt-0.5 block text-[6px] font-normal italic">
+            {schoolSettings.branding.motto}
+          </span>
+        )}
+      </div>
+    </div>
 
-                        <p>
-                          <strong>Admission No:</strong>{" "}
-                          {student.admissionNumber || "—"}
-                        </p>
-                        <p>
-                          <strong>Repeater (Y/N):</strong>{" "}
-                          {student.repeater === undefined
-                            ? "—"
-                            : student.repeater
-                              ? "YES"
-                              : "NO"}
-                        </p>
+    {/* Right authority heading */}
+    <div className="leading-tight">
+      {schoolSettings?.report?.authorityHeaderRight ||
+        "MINISTRY OF SECONDARY EDUCATION"}
+    </div>
+  </div>
 
-                        <p>
-                          <strong>Student&apos;s No:</strong>{" "}
-                          {student.studentNumber || "—"}
-                        </p>
-                        <p>
-                          <strong>Department:</strong>{" "}
-                          {schoolClass?.department || "—"}
-                        </p>
-                      </div>
-                    </header>
+  {/* Report title */}
+  <div className="mx-auto mt-1 w-fit rounded-full border-2 border-blue-800 px-4 py-1 text-center text-base font-black text-blue-900 sm:text-lg">
+    {schoolSettings?.report?.title || "PROGRESS RECORD"}
+  </div>
 
-                    <div className="my-2 flex flex-wrap items-center justify-between gap-2 border border-blue-800 px-2 py-1 text-[10px] font-bold sm:text-xs">
-                      <span>
-                        {report.finalized
-                          ? "FINALIZED RESULTS"
-                          : "PREVIEW — NOT FINALIZED"}
-                      </span>
-                      <span>
-                        Selected Term: {currentTerm?.name || "—"}
-                      </span>
-                      <span>
-                        {report.incomplete || report.unconfiguredCoefficients
-                          ? "INCOMPLETE REPORT"
-                          : "RESULTS AVAILABLE"}
-                      </span>
-                    </div>
+  {/* Student information */}
+  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] sm:text-[10px]">
 
-                    {(report.incomplete ||
-                      report.unconfiguredCoefficients) && (
-                      <div className="mb-2 border border-amber-600 p-2 text-[10px] text-amber-900">
-                        Some marks, assessment configurations or subject
-                        coefficients are incomplete. Missing results are not
-                        treated as final zero marks.
-                      </div>
-                    )}
+    <p>
+      <strong>{labels.studentName}</strong> {student.fullName}
+    </p>
+
+    <p>
+      <strong>{labels.academicYear}</strong> {currentYear?.name || "—"}
+    </p>
+
+    {schoolSettings?.report?.showSpeciality !== false && (
+      <p>
+        <strong>{labels.speciality}</strong>{" "}
+        {student.specialty || schoolClass?.department || "—"}
+      </p>
+    )}
+
+    {schoolSettings?.report?.showStream !== false && (
+      <p>
+        <strong>{labels.stream}</strong> {schoolClass?.stream || "—"}
+      </p>
+    )}
+
+    {schoolSettings?.report?.showDateOfBirth === true && (
+      <p>
+        <strong>{labels.dateOfBirth}</strong>{" "}
+        {student.dateOfBirth || "—"}
+      </p>
+    )}
+
+    <p>
+      <strong>{labels.class}</strong> {student.className}
+    </p>
+
+    {schoolSettings?.report?.showAdmissionNumber !== false && (
+      <p>
+        <strong>{labels.admissionNumber}</strong>{" "}
+        {student.admissionNumber || "—"}
+      </p>
+    )}
+
+    <p>
+      <strong>{labels.repeater}</strong>{" "}
+      {student.repeater === undefined
+        ? "—"
+        : student.repeater
+          ? "YES"
+          : "NO"}
+    </p>
+
+    <p>
+      <strong>{labels.studentNumber}</strong>{" "}
+      {student.studentNumber || "—"}
+    </p>
+
+    {schoolSettings?.report?.showDepartment !== false && (
+      <p>
+        <strong>{labels.department}</strong>{" "}
+        {schoolClass?.department || "—"}
+      </p>
+    )}
+  </div>
+</header>
+
+                 
 
                     {/* SUBJECT TABLES */}
                     {report.categories.length === 0 ? (
-                      <div className="border border-blue-800 p-5 text-center text-sm">
-                        No active teacher subject assignments were found for
-                        this student&apos;s class.
-                      </div>
+                     <div className="print:hidden border border-blue-800 p-5 text-center text-sm">
+  {labels.noAssignmentsMessage}
+</div>
                     ) : (
                       report.categories.map((category, categoryIndex) => (
                         <section
@@ -1341,7 +1685,7 @@ const totalMarks =
 
                                     <td className="border border-blue-800 p-1 text-center">
                                       <strong>
-                                        {gradeFor(selectedAverage)}
+                                       {gradeFor(selectedAverage, gradeBands)}
                                       </strong>
                                       <div className="text-[8px]">
                                         {selectedResult?.status === "finalized"
@@ -1464,7 +1808,7 @@ const totalMarks =
   </div>
 
   {/* RIGHT COLUMN: RECAPITULATION + COUNCIL + PRINCIPAL */}
-  <div className="space-y-2">
+  <div className="space-y-1">
 
     {/* TOP RIGHT BOX: RECAPITULATION AND COUNCIL DECISION */}
     <div className="grid grid-cols-2 border border-blue-800">
@@ -1499,27 +1843,58 @@ const totalMarks =
       </div>
 
       {/* CLASS COUNCIL DECISION */}
-      <div>
-        <h4 className="border-b border-blue-800 bg-blue-100 px-1 py-1 text-center font-black">
-          CLASS COUNCIL DECISION
-        </h4>
+   <div className="space-y-3 p-2 text-center">
 
-        <div className="space-y-2 p-2 text-center font-bold">
-          <p>PROMOTED: __________</p>
-          <p>REPEAT: _____________</p>
-          <p>DISMISSED: __________</p>
-          <p>CANNOT TRIPPLE: _____</p>
-        </div>
-
-        <div className="border-t border-blue-800 px-1 py-2 text-center">
-          <p className="font-bold">DISCIPLINE</p>
-          <p>__________________</p>
-        </div>
+  {/* POSSIBLE COUNCIL DECISIONS — CONVENTIONAL REPORT STYLE */}
+  <div className="space-y-1 text-left text-[9px] font-semibold text-slate-800">
+    {decisionOptionsForReport.map((option) => (
+      <div
+        key={option.value}
+        className="flex items-center justify-between gap-2 border-b border-dashed border-slate-400 pb-1"
+      >
+        <span>{option.label}:</span>
+        <span className="inline-block w-16 border-b border-dashed border-slate-500" />
       </div>
+    ))}
+  </div>
+
+  {/* ACTUAL COUNCIL DECISION */}
+  <div
+    className={`rounded border px-2 py-1 text-center leading-tight ${
+      selectedCouncilDecision === "Passed" ||
+      selectedCouncilDecision === "Promoted"
+        ? "border-blue-700 bg-blue-50 text-blue-900"
+        : selectedCouncilDecision === "Failed" ||
+            selectedCouncilDecision === "Dismissed" ||
+            selectedCouncilDecision === "Cannot Repeat Again"
+          ? "border-red-700 bg-red-50 text-red-900"
+          : selectedCouncilDecision === "Needs Improvement" ||
+              selectedCouncilDecision === "Repeat"
+            ? "border-amber-600 bg-amber-50 text-amber-900"
+            : "border-slate-400 bg-slate-50 text-slate-600"
+    }`}
+  >
+   <p className="text-[7px] font-bold uppercase tracking-wide">
+      Council&apos;s Final Decision
+    </p>
+    <p className="mt-0.5 text-[9px] font-black">
+      {selectedCouncilDecision || "Not yet recorded"}
+    </p>
+  </div>
+
+  {/* DISCIPLINE */}
+  <div className="border-t border-blue-800 px-1 py-1">
+    <p className="text-[9px] font-bold">{labels.discipline}</p>
+    <p className="mt-1 text-[9px] font-semibold">
+      {councilOutcomes[student.id]?.discipline || "—"}
+    </p>
+  </div>
+
+</div>
     </div>
 
     {/* BOTTOM RIGHT BOX: PRINCIPAL SIGNATURE */}
-    <div className="flex min-h-[150px] flex-col justify-end border border-blue-800 p-2 text-center">
+    <div className="flex min-h-[135px] flex-col justify-end border border-blue-800 p-2 text-center">
       <p className="font-bold">THE PRINCIPAL</p>
       <div className="h-20"></div>
       <p className="border-t border-black pt-1 font-semibold">
