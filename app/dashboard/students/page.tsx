@@ -3,17 +3,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
+import StudentBulkImport from "@/components/students/StudentBulkImport";
 import {
    writeBatch,
   collection,
   doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
+  getDoc,  getDocs,  onSnapshot,
   query,
-  serverTimestamp,
-  updateDoc,
-  where,
+  serverTimestamp,  updateDoc,  where,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
@@ -49,6 +46,7 @@ type Enrollment = {
 
 export default function StudentsPage() {
   const [schoolId, setSchoolId] = useState("");
+  const [schoolName, setSchoolName] = useState("");
  const [loading, setLoading] = useState(true);
 const [classesLoaded, setClassesLoaded] = useState(false);
 const [studentsLoaded, setStudentsLoaded] = useState(false);
@@ -75,6 +73,12 @@ const [studentsLoaded, setStudentsLoaded] = useState(false);
   const [fullName, setFullName] = useState("");
   const [gender, setGender] = useState("Male");
   const [classId, setClassId] = useState("");
+
+  const [showBulkImport, setShowBulkImport] = useState(false);
+const [showClassPreview, setShowClassPreview] = useState(false);
+const [previewClassId, setPreviewClassId] = useState("all");
+const [previewOpen, setPreviewOpen] = useState(false);
+
 
   useEffect(() => {
     let stopYears: (() => void) | undefined;
@@ -107,6 +111,23 @@ const [studentsLoaded, setStudentsLoaded] = useState(false);
 
         const currentSchoolId = data.schoolId as string;
         setSchoolId(currentSchoolId);
+        try {
+  const settingsSnapshot = await getDoc(
+    doc(db, "schools", currentSchoolId, "settings", "general")
+  );
+
+  const identity = settingsSnapshot.exists()
+    ? settingsSnapshot.data().identity
+    : undefined;
+
+  setSchoolName(
+    typeof identity?.schoolName === "string"
+      ? identity.schoolName.trim()
+      : ""
+  );
+} catch {
+  setSchoolName("");
+}
 
         stopYears = onSnapshot(
           collection(db, "schools", currentSchoolId, "academicYears"),
@@ -239,7 +260,8 @@ const studentRows = useMemo(() => {
       ? enrollmentData.records
       : [];
 
-  return enrollments.map((enrollment) => {
+ return enrollments
+  .map((enrollment) => {
     const student = students.find(
       (item) => item.id === enrollment.studentId
     );
@@ -256,8 +278,31 @@ const studentRows = useMemo(() => {
         enrollment.className ||
         "Class unavailable",
     };
-  }).filter((row) => row.student);
+  })
+  .filter((row) => row.student)
+  .sort((a, b) =>
+    a.student!.fullName.localeCompare(
+      b.student!.fullName,
+      undefined,
+      { sensitivity: "base" }
+    )
+  );
 }, [schoolId, selectedYear, enrollmentData, students, classes]);
+
+const classListRows = studentRows
+  .filter(
+    (row) =>
+      row.student?.status === "active" &&
+      (previewClassId === "all" ||
+        row.enrollment.classId === previewClassId)
+  )
+  .sort((a, b) =>
+    a.student!.fullName.localeCompare(
+      b.student!.fullName,
+      undefined,
+      { sensitivity: "base" }
+    )
+  );
 
   const filteredStudents = studentRows.filter((row) => {
     const student = row.student!;
@@ -267,6 +312,8 @@ const studentRows = useMemo(() => {
       student.admissionNumber,
       row.className,
     ].join(" ").toLowerCase().includes(search.toLowerCase());
+
+
 
     const matchesClass =
       classFilter === "all" || row.enrollment.classId === classFilter;
@@ -516,7 +563,7 @@ const studentRows = useMemo(() => {
       )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="grid gap-5 sm:grid-cols-2 sm:items-end">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 sm:items-end">
           <div>
             <label className="mb-2 block text-base font-semibold text-slate-800">
               Academic year
@@ -546,6 +593,30 @@ const studentRows = useMemo(() => {
           >
             + Register new student
           </button>
+       <button
+  type="button"
+  onClick={() => {
+    setShowBulkImport(true);
+    setShowClassPreview(false);
+  }}
+  disabled={!selectedYear}
+  className="min-h-14 rounded-xl border-2 border-blue-800 px-5 py-3 font-bold text-blue-800 hover:bg-blue-50 disabled:opacity-50"
+>
+  Bulk import students
+</button>
+
+<button
+  type="button"
+  onClick={() => {
+    setShowClassPreview(true);
+    setShowBulkImport(false);
+    setPreviewOpen(true);
+  }}
+  disabled={!selectedYear}
+  className="min-h-14 rounded-xl border-2 border-slate-400 px-5 py-3 font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+>
+  Print class list
+</button>
         </div>
       </section>
 
@@ -863,6 +934,229 @@ const studentRows = useMemo(() => {
           </section>
         </>
       )}
+
+     {showBulkImport && selectedYear && (
+  <div className="fixed inset-0 z-50 overflow-y-auto bg-gray-200 p-2 md:p-6">
+
+    <div className="sticky top-0 z-20 mb-5 flex items-center justify-between gap-3 rounded-lg bg-white p-4 shadow">
+      <h2 className="text-lg font-bold text-slate-950">
+        Bulk Import Students
+      </h2>
+
+      <button
+        type="button"
+        onClick={() => setShowBulkImport(false)}
+        className="rounded-lg border px-5 py-3 font-semibold hover:bg-gray-50"
+      >
+        Close
+      </button>
+    </div>
+
+    <div className="mx-auto max-w-6xl rounded-2xl bg-white p-4 shadow-sm md:p-6">
+      <StudentBulkImport
+        schoolId={schoolId}
+        selectedYear={selectedYear}
+        classes={activeClasses}
+        existingStudents={students}
+        onImported={() => {
+          setShowBulkImport(false);
+          setMessage("Students imported successfully.");
+        }}
+      />
+    </div>
+
+  </div>
+)}
+       
+
+    {showClassPreview && selectedYear && (
+  <section
+    className={
+      previewOpen
+        ? "fixed inset-0 z-50 overflow-y-auto bg-gray-200 p-2 md:p-6"
+        : "rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+    }
+  >
+         <div className="no-print sticky top-0 z-20 mb-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow">
+  <h2 className="text-lg font-bold text-slate-950">
+    Class List Preview
+  </h2>
+
+  <div className="flex flex-wrap gap-2">
+    <button
+      type="button"
+      onClick={() => window.print()}
+      className="rounded-lg bg-blue-800 px-5 py-3 font-bold text-white hover:bg-blue-900"
+    >
+      Print / Save as PDF
+    </button>
+
+    <button
+      type="button"
+      onClick={() => {
+        setPreviewOpen(false);
+        setShowClassPreview(false);
+      }}
+      className="rounded-lg border px-5 py-3 font-semibold hover:bg-gray-50"
+    >
+      Close
+    </button>
+  </div>
+</div>
+
+<div className="no-print mb-4 flex flex-wrap items-center gap-3">
+
+       
+
+            <div className="flex flex-wrap gap-3">
+              <select
+                value={previewClassId}
+                onChange={(e) => setPreviewClassId(e.target.value)}
+                className="min-h-12 rounded-xl border-2 border-slate-300 bg-white px-3"
+              >
+                <option value="all">All classes</option>
+                {activeClasses.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            
+            </div>
+          </div>
+
+          <div className="print-area mt-7">
+     <div className="mb-4 text-center leading-tight">
+  {schoolName && (
+    <h2 className="text-lg font-bold uppercase">
+      {schoolName}
+    </h2>
+  )}
+
+  <h3 className="mt-1 text-base font-bold uppercase">
+    Student Class List
+  </h3>
+
+  <p className="mt-2 text-sm font-semibold">
+    Academic Year:{" "}
+    {years.find((year) => year.id === selectedYear)?.name}
+  </p>
+
+  <p className="mt-1 text-sm">
+    Class:{" "}
+    {previewClassId === "all"
+      ? "All classes"
+      : activeClasses.find(
+          (item) => item.id === previewClassId
+        )?.name}
+    {" | "}
+    Total active students: {classListRows.length}
+  </p>
+</div>
+
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr>
+                  <th className="border border-slate-400 p-2">No.</th>
+                  <th className="border border-slate-400 p-2">
+                    Admission number
+                  </th>
+                  <th className="border border-slate-400 p-2">
+                    Student full name
+                  </th>
+                  <th className="border border-slate-400 p-2">Gender</th>
+                  {previewClassId === "all" && (
+                    <th className="border border-slate-400 p-2">Class</th>
+                  )}
+                  <th className="border border-slate-400 p-2">
+                    Signature
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {classListRows.map((row, index) => (
+                  <tr key={row.student!.id}>
+                    <td className="border border-slate-400 p-2">
+                      {index + 1}
+                    </td>
+                    <td className="border border-slate-400 p-2">
+                      {row.student!.admissionNumber}
+                    </td>
+                    <td className="border border-slate-400 p-2 font-medium">
+                      {row.student!.fullName}
+                    </td>
+                    <td className="border border-slate-400 p-2">
+                      {row.student!.gender}
+                    </td>
+                    {previewClassId === "all" && (
+                      <td className="border border-slate-400 p-2">
+                        {row.className}
+                      </td>
+                    )}
+                    <td className="border border-slate-400 p-2"></td>
+                  </tr>
+                ))}
+
+                {classListRows.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={previewClassId === "all" ? 6 : 5}
+                      className="border border-slate-400 p-5 text-center"
+                    >
+                      No active students found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            <div className="mt-12 flex justify-between gap-8 text-sm">
+              <p>Class Teacher: ____________________</p>
+              <p>Date: ____________________</p>
+            </div>
+          </div>
+
+          <style jsx global>{`
+            @media print {
+              body * {
+                visibility: hidden !important;
+              }
+
+              .print-area,
+              .print-area * {
+                visibility: visible !important;
+              }
+
+              .print-area {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                padding: 15px !important;
+              }
+
+              .no-print {
+                display: none !important;
+              }
+
+              table {
+                page-break-inside: auto;
+              }
+
+              tr {
+                page-break-inside: avoid;
+              }
+
+              @page {
+                size: A4 portrait;
+                margin: 12mm;
+              }
+            }
+          `}</style>
+        </section>
+      )}
+
+
     </main>
   );
 }
