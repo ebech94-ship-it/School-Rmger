@@ -3,9 +3,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import Image from "next/image";
 
-
 export const metadata: Metadata = {
-  metadataBase: new URL("https://gsscholar.vercel.app"),
+  metadataBase: new URL("https://gs-school.vercel.app"),
 
   title: "GS Scholar | Smart School Management",
 
@@ -16,13 +15,11 @@ export const metadata: Metadata = {
     title: "GS Scholar | Smart School Management",
     description:
       "Smarter processes. Accurate results. Excellent outcomes. Discover GS Scholar.",
-    url: "https://gs-school.vercel.app",
+    url: "https://gs-school.vercel.app/",
     siteName: "GS Scholar",
     images: [
       {
-        url: "/gss.jpg",
-        width: 1536,
-        height: 1024,
+        url: "https://gs-school.vercel.app/gss.jpg",
         alt: "GS Scholar by GodSpeed Technologies",
       },
     ],
@@ -34,7 +31,7 @@ export const metadata: Metadata = {
     title: "GS Scholar | Smart School Management",
     description:
       "A better way to manage school records and academic results.",
-    images: ["/gss.jpg"],
+    images: ["https://gs-school.vercel.app/gss.jpg"],
   },
 };
 
