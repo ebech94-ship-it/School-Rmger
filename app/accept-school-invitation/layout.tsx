@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     siteName: "GS Scholar",
     images: [
       {
-        url: "https://gs-school.vercel.app/gss.jpg",
+       url: "https://gs-school.vercel.app/opengraph-image",
         alt: "GS Scholar by GodSpeed Technologies",
       },
     ],
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     title: "Welcome to GS Scholar",
     description:
       "Your school is invited to join GS Scholar.",
-    images: ["https://gs-school.vercel.app/gss.jpg"],
+    images: ["https://gs-school.vercel.app/opengraph-image"],
   },
 };
 

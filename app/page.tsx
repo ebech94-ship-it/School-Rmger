@@ -11,6 +11,7 @@ export const metadata: Metadata = {
   description:
     "Simplify student records, academic results and school administration with GS Scholar by GodSpeed Technologies.",
 
+ 
   openGraph: {
     title: "GS Scholar | Smart School Management",
     description:
@@ -19,7 +20,10 @@ export const metadata: Metadata = {
     siteName: "GS Scholar",
     images: [
       {
-        url: "https://gs-school.vercel.app/gss.jpg",
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        type: "image/png",
         alt: "GS Scholar by GodSpeed Technologies",
       },
     ],
@@ -31,8 +35,9 @@ export const metadata: Metadata = {
     title: "GS Scholar | Smart School Management",
     description:
       "A better way to manage school records and academic results.",
-    images: ["https://gs-school.vercel.app/gss.jpg"],
+    images: ["/opengraph-image"],
   },
+
 };
 
 const features = [
